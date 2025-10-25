@@ -15,7 +15,6 @@ export const metadata = {
   title: "Cricket Scorer",
   description: "Manage teams and score cricket matches",
   manifest: "/manifest.json",
-  themeColor: "#16a34a",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
@@ -25,6 +24,10 @@ export const metadata = {
     icon: "/icon.svg",
     apple: "/icon.svg",
   },
+};
+
+export const viewport = {
+  themeColor: "#16a34a",
 };
 
 export default function RootLayout({ children }) {
