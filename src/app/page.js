@@ -262,6 +262,67 @@ const CricketScorer = () => {
     setMatch(newMatch);
   };
 
+  const addWide = () => {
+    if (!match || match.winner) return;
+
+    const newMatch = { ...match };
+    const battingTeam = newMatch.currentInnings === 1 ? newMatch.team1 : newMatch.team2;
+    const striker = newMatch.currentBatsmen.find(b => b.onStrike);
+
+    // Wide: 1 run added, ball doesn't count
+    battingTeam.score += 1;
+    newMatch.currentBowler.runs += 1;
+
+    const ballData = { type: 'wide', runs: 1, bowler: newMatch.currentBowler.name, batsman: striker.name };
+    newMatch.ballHistory.push(ballData);
+    if (newMatch.currentInnings === 1) {
+      newMatch.innings1BallHistory.push(ballData);
+    } else {
+      newMatch.innings2BallHistory.push(ballData);
+    }
+
+    checkInningsEnd(newMatch);
+    setMatch(newMatch);
+  };
+
+  const addNoBall = (runs = 0) => {
+    if (!match || match.winner) return;
+
+    const newMatch = { ...match };
+    const battingTeam = newMatch.currentInnings === 1 ? newMatch.team1 : newMatch.team2;
+    const striker = newMatch.currentBatsmen.find(b => b.onStrike);
+    
+    // Check if only one batsman remains
+    const activeBatsmen = newMatch.currentBatsmen.filter(b => b.id);
+    const singleBatsman = activeBatsmen.length === 1;
+    
+    // If single batsman, don't allow odd runs
+    if (singleBatsman && runs % 2 === 1) {
+      return;
+    }
+
+    // No ball: 1 run penalty + runs scored, ball doesn't count
+    const totalRuns = 1 + runs;
+    striker.runs += runs;
+    battingTeam.score += totalRuns;
+    newMatch.currentBowler.runs += totalRuns;
+
+    if (runs % 2 === 1 && !singleBatsman) {
+      newMatch.currentBatsmen.forEach(b => b.onStrike = !b.onStrike);
+    }
+
+    const ballData = { type: 'noball', runs: totalRuns, bowler: newMatch.currentBowler.name, batsman: striker.name };
+    newMatch.ballHistory.push(ballData);
+    if (newMatch.currentInnings === 1) {
+      newMatch.innings1BallHistory.push(ballData);
+    } else {
+      newMatch.innings2BallHistory.push(ballData);
+    }
+
+    checkInningsEnd(newMatch);
+    setMatch(newMatch);
+  };
+
   const changeBowler = (bowlerId) => {
     const newMatch = { ...match };
     const bowlingTeamData = teams.find(t => t.id === newMatch.bowlingTeam);
@@ -702,6 +763,21 @@ const CricketScorer = () => {
                   </button>
                 </div>
 
+                <div className="grid grid-cols-2 gap-2 mb-4">
+                  <button
+                    onClick={addWide}
+                    className="bg-yellow-500 text-white py-3 rounded-lg font-bold hover:bg-yellow-600 transition active:scale-95"
+                  >
+                    WIDE (+1)
+                  </button>
+                  <button
+                    onClick={() => addNoBall(0)}
+                    className="bg-orange-500 text-white py-3 rounded-lg font-bold hover:bg-orange-600 transition active:scale-95"
+                  >
+                    NO BALL (+1)
+                  </button>
+                </div>
+
                 {(match.innings1BallHistory.length > 0 || match.innings2BallHistory.length > 0) && (
                   <div className="bg-gray-50 p-4 rounded-lg">
                     <h3 className="font-semibold mb-3 text-black">Ball History</h3>
@@ -714,10 +790,16 @@ const CricketScorer = () => {
                             <div
                               key={idx}
                               className={`w-10 h-10 flex items-center justify-center rounded-full font-bold ${
-                                ball.type === 'wicket' ? 'bg-red-500 text-white' : 'bg-blue-500 text-white'
+                                ball.type === 'wicket' ? 'bg-red-500 text-white' : 
+                                ball.type === 'wide' ? 'bg-yellow-500 text-white' :
+                                ball.type === 'noball' ? 'bg-orange-500 text-white' :
+                                'bg-blue-500 text-white'
                               }`}
                             >
-                              {ball.type === 'wicket' ? 'W' : ball.runs}
+                              {ball.type === 'wicket' ? 'W' : 
+                               ball.type === 'wide' ? 'WD' :
+                               ball.type === 'noball' ? 'NB' :
+                               ball.runs}
                             </div>
                           ))}
                         </div>
@@ -732,10 +814,16 @@ const CricketScorer = () => {
                             <div
                               key={idx}
                               className={`w-10 h-10 flex items-center justify-center rounded-full font-bold ${
-                                ball.type === 'wicket' ? 'bg-red-500 text-white' : 'bg-purple-500 text-white'
+                                ball.type === 'wicket' ? 'bg-red-500 text-white' : 
+                                ball.type === 'wide' ? 'bg-yellow-500 text-white' :
+                                ball.type === 'noball' ? 'bg-orange-500 text-white' :
+                                'bg-purple-500 text-white'
                               }`}
                             >
-                              {ball.type === 'wicket' ? 'W' : ball.runs}
+                              {ball.type === 'wicket' ? 'W' : 
+                               ball.type === 'wide' ? 'WD' :
+                               ball.type === 'noball' ? 'NB' :
+                               ball.runs}
                             </div>
                           ))}
                         </div>
