@@ -1,4 +1,15 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# 🏏 Cricket Scorer PWA
+
+A Progressive Web App for managing cricket teams and scoring matches. Built with Next.js and next-pwa.
+
+## Features
+
+- ✅ **Team Management**: Create and manage cricket teams with up to 11 players
+- ✅ **Live Scoring**: Score matches in real-time with ball-by-ball tracking
+- ✅ **PWA Support**: Install on your device and use offline
+- ✅ **Responsive Design**: Works on mobile, tablet, and desktop
+- ✅ **Player Avatars**: Unique avatars for each player
+- ✅ **Captain Selection**: Designate team captains
 
 ## Getting Started
 
@@ -16,9 +27,32 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+## PWA Features
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+This app is a Progressive Web App with the following capabilities:
+
+- **Installable**: Add to home screen on mobile devices or install as desktop app
+- **Offline Support**: Service worker caches assets for offline use
+- **App-like Experience**: Runs in standalone mode without browser UI
+- **Auto-updates**: Service worker updates automatically when new version is deployed
+
+### Installing the PWA
+
+1. Open the app in your browser
+2. Look for the "Install" prompt or "Add to Home Screen" option
+3. Follow the prompts to install
+4. Launch from your home screen or app drawer
+
+### Generating Icons
+
+To generate proper PWA icons:
+
+1. Open `generate-icons.html` in your browser
+2. Right-click each canvas and save as:
+   - `public/icon-192x192.png`
+   - `public/icon-512x512.png`
+
+Or replace with your own custom icons matching these dimensions.
 
 ## Learn More
 
