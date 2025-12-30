@@ -18,12 +18,7 @@ export function createClient(enableRealtime = false) {
     if (!browserClient) {
       browserClient = createSupabaseClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-          realtime: {
-            enabled: false
-          }
-        }
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
       )
     }
     return browserClient
