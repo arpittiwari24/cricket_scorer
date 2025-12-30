@@ -119,7 +119,7 @@ export class MatchEngine {
         .update(updateData)
         .eq('id', this.matchId)
 
-      // Check for innings end
+      // Check for innings end (overs complete or target chased)
       const currentWickets = isFirstInnings
         ? match.team1_wickets
         : match.team2_wickets
@@ -128,17 +128,11 @@ export class MatchEngine {
         : match.team2_overs + (newBalls === 6 ? 1 : 0)
       const currentBalls = newBalls === 6 ? 0 : newBalls
 
-      const { shouldEnd, reason } = shouldEndInnings(
-        currentWickets,
-        currentOvers,
-        currentBalls,
-        match.total_overs,
-        match.target || undefined,
-        newScore
-      )
-
-      if (shouldEnd) {
-        await this.handleInningsEnd(reason)
+      // Check overs complete or target chased (not all out - that's checked elsewhere)
+      if (currentOvers >= match.total_overs && currentBalls === 0) {
+        await this.handleInningsEnd('overs_complete')
+      } else if (match.target && newScore >= match.target) {
+        await this.handleInningsEnd('target_chased')
       }
 
       return { success: true }
@@ -375,10 +369,11 @@ export class MatchEngine {
         })
       }
 
-      // Update match wickets
-      const newWickets = isFirstInnings
-        ? match.team1_wickets + 1
-        : match.team2_wickets + 1
+      // Update match wickets and balls
+      // Retired hurt does NOT count as a wicket
+      const isRetiredHurt = wicketType === 'retired_hurt'
+      const currentWickets = isFirstInnings ? match.team1_wickets : match.team2_wickets
+      const newWickets = isRetiredHurt ? currentWickets : currentWickets + 1
       const newBalls = balls + 1
 
       const updateData = isFirstInnings
@@ -404,9 +399,45 @@ export class MatchEngine {
         .update(updateData)
         .eq('id', this.matchId)
 
-      // Check for innings end (all out)
-      if (newWickets >= 10) {
-        await this.handleInningsEnd('all_out')
+      // Check for innings end (all out) - retired hurt doesn't end innings
+      if (!isRetiredHurt) {
+        // Get the batting team's total players
+        const { data: matchData } = await this.supabase
+          .from('matches')
+          .select('*, team1:team1_id(*, team_players(*)), team2:team2_id(*, team_players(*))')
+          .eq('id', this.matchId)
+          .single()
+
+        if (matchData) {
+          const battingTeam = isFirstInnings ? matchData.team1 : matchData.team2
+          const totalPlayers = (battingTeam as any)?.team_players?.length || 11
+
+          // Get count of batsmen who have batted (excluding retired hurt)
+          const { data: stats } = await this.supabase
+            .from('batting_stats')
+            .select('*')
+            .eq('match_id', this.matchId)
+            .eq('innings_number', currentInnings)
+
+          // Count how many are actually out (not retired hurt)
+          const actualWickets = stats?.filter(
+            (s) => s.is_out && s.dismissal_type !== 'retired_hurt'
+          ).length || 0
+
+          // Count retired hurt (they can return)
+          const retiredHurtCount = stats?.filter(
+            (s) => s.is_out && s.dismissal_type === 'retired_hurt'
+          ).length || 0
+
+          // Count batsmen currently batting
+          const currentlyBatting = stats?.filter((s) => !s.is_out).length || 0
+
+          // All out if: actual wickets + currently batting >= total players
+          // (retired hurt players can still return, so they don't count towards all out)
+          if (actualWickets + currentlyBatting >= totalPlayers) {
+            await this.handleInningsEnd('all_out')
+          }
+        }
       }
 
       return { success: true }

@@ -6,7 +6,7 @@ import { Header } from './Header'
 export function ConditionalHeader() {
   const pathname = usePathname()
 
-  // Don't show header on login page
+  // Don't show header on login page only
   if (pathname === '/login') {
     return null
   }

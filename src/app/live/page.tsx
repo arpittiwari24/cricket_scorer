@@ -1,9 +1,18 @@
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth/nextauth'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { getAllLiveMatches } from '@/actions/matches'
 import { formatOvers } from '@/lib/cricket/rules'
 
 export default async function LiveMatchesPage() {
+  const session = await getServerSession(authOptions)
+
+  if (!session) {
+    redirect('/login')
+  }
+
   const result = await getAllLiveMatches()
   const liveMatches = result.success ? result.data : []
 

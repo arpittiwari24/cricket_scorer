@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -22,9 +22,15 @@ interface Player {
 
 export default function CreateMatchPage() {
   const router = useRouter()
-  const { user } = useAuth()
+  const { user, isLoading: authLoading, isAuthenticated } = useAuth()
   const [step, setStep] = useState(1)
   const [isLoading, setIsLoading] = useState(false)
+
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      router.push('/login')
+    }
+  }, [authLoading, isAuthenticated, router])
 
   // Match details
   const [overs, setOvers] = useState('20')
@@ -263,6 +269,18 @@ export default function CreateMatchPage() {
     }
   }
 
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <p className="text-gray-600">Loading...</p>
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return null
+  }
+
   return (
     <div className="max-w-4xl mx-auto space-y-6 px-4 sm:px-6">
       <div>
@@ -311,18 +329,31 @@ export default function CreateMatchPage() {
           <CardContent className="space-y-4">
             <div>
               <Label htmlFor="overs">Number of Overs</Label>
-              <Select value={overs} onValueChange={setOvers}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {[5, 10, 15, 20, 30, 40, 50].map((num) => (
-                    <SelectItem key={num} value={num.toString()}>
-                      {num} overs
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex gap-2">
+                <Input
+                  id="overs"
+                  type="number"
+                  min="1"
+                  max="100"
+                  value={overs}
+                  onChange={(e) => setOvers(e.target.value)}
+                  placeholder="Enter overs (e.g., 5, 10, 20)"
+                  className="flex-1"
+                />
+                <Select value={overs} onValueChange={setOvers}>
+                  <SelectTrigger className="w-32">
+                    <SelectValue placeholder="Quick" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[5, 10, 15, 20, 30, 40, 50].map((num) => (
+                      <SelectItem key={num} value={num.toString()}>
+                        {num}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">Enter any number of overs or use quick select</p>
             </div>
 
             <div>

@@ -147,8 +147,8 @@ export async function getMatch(matchId: string) {
     .select(
       `
       *,
-      team1:team1_id(*),
-      team2:team2_id(*),
+      team1:team1_id(*, team_players(*)),
+      team2:team2_id(*, team_players(*)),
       batting_stats(*),
       bowling_stats(*),
       balls(*)
@@ -263,17 +263,42 @@ export async function selectNewBatsman(
 ) {
   const supabase = createClient()
 
-  // Initialize batting stats for new batsman
-  const { error } = await supabase.from('batting_stats').insert({
-    match_id: matchId,
-    team_player_id: batsmanId,
-    innings_number: inningsNumber,
-    runs: 0,
-    balls_faced: 0,
-  })
+  // Check if this batsman has existing stats (e.g., retired hurt)
+  const { data: existingStat } = await supabase
+    .from('batting_stats')
+    .select('*')
+    .eq('match_id', matchId)
+    .eq('team_player_id', batsmanId)
+    .eq('innings_number', inningsNumber)
+    .single()
 
-  if (error) {
-    return { success: false, error: error.message }
+  if (existingStat) {
+    // Player is returning (e.g., from retired hurt)
+    // Mark them as not out so they can bat again
+    const { error } = await supabase
+      .from('batting_stats')
+      .update({
+        is_out: false,
+        dismissal_type: null,
+      })
+      .eq('id', existingStat.id)
+
+    if (error) {
+      return { success: false, error: error.message }
+    }
+  } else {
+    // Initialize batting stats for new batsman
+    const { error } = await supabase.from('batting_stats').insert({
+      match_id: matchId,
+      team_player_id: batsmanId,
+      innings_number: inningsNumber,
+      runs: 0,
+      balls_faced: 0,
+    })
+
+    if (error) {
+      return { success: false, error: error.message }
+    }
   }
 
   revalidatePath(`/matches/${matchId}`)
