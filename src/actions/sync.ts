@@ -85,17 +85,27 @@ export async function syncLocalMatchToDatabase(
       if (bowlingError) throw bowlingError
     }
 
-    // 5. Insert all balls (remove id and created_at, keep commentary)
+    // 5. Insert all balls (remove id and created_at, keep commentary, deduplicate)
     const cleanBalls = balls.map((ball: any) => {
       const { id, created_at, ...rest } = ball
       // Keep commentary for display in scorecard
       return rest
     })
 
-    if (cleanBalls.length > 0) {
+    // Deduplicate balls by unique constraint (match_id, innings_number, over_number, ball_number)
+    const uniqueBalls = cleanBalls.filter((ball: any, index: number, self: any[]) => {
+      return index === self.findIndex((b: any) =>
+        b.match_id === ball.match_id &&
+        b.innings_number === ball.innings_number &&
+        b.over_number === ball.over_number &&
+        b.ball_number === ball.ball_number
+      )
+    })
+
+    if (uniqueBalls.length > 0) {
       const { error: ballsError } = await supabase
         .from('balls')
-        .insert(cleanBalls)
+        .insert(uniqueBalls)
 
       if (ballsError) throw ballsError
     }

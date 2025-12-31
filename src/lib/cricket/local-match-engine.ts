@@ -562,6 +562,36 @@ export class LocalMatchEngine {
   /**
    * Add a new batsman
    */
+  /**
+   * Retire hurt a batsman (doesn't consume a ball, no wicket)
+   */
+  retireHurt(batsmanId: string) {
+    const state = this.getState()
+    if (!state) return { success: false, error: 'Match state not found' }
+
+    const { match, battingStats } = state
+
+    // Find the batsman in current innings
+    const batsmanStat = battingStats.find(
+      (s: any) => s.team_player_id === batsmanId && s.innings_number === match.current_innings
+    )
+
+    if (!batsmanStat) {
+      return { success: false, error: 'Batsman not found' }
+    }
+
+    // Mark as retired hurt (is_out = true but doesn't count as wicket)
+    batsmanStat.is_out = true
+    batsmanStat.dismissal_type = 'retired_hurt'
+
+    // DON'T increment wickets (retired hurt is not a wicket)
+    // DON'T create a ball entry (no ball was bowled)
+    // DON'T increment bowler's stats
+
+    this.saveState(state)
+    return { success: true }
+  }
+
   addBatsman(batsmanId: string, inningsNumber: number) {
     const state = this.getState()
     if (!state) return { success: false, error: 'Match state not found' }

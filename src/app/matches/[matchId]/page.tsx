@@ -41,6 +41,7 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
   const [showBatsmanDialog, setShowBatsmanDialog] = useState(false)
   const [showWideDialog, setShowWideDialog] = useState(false)
   const [showNoBallDialog, setShowNoBallDialog] = useState(false)
+  const [showRetireHurtDialog, setShowRetireHurtDialog] = useState(false)
   const [wicketType, setWicketType] = useState('')
   const [newBowlerId, setNewBowlerId] = useState('')
   const [newBatsmanId, setNewBatsmanId] = useState('')
@@ -718,6 +719,91 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
     }
   }
 
+  const handleRetireHurt = async () => {
+    if (currentBatsmen.length < 1 || !currentBowler) return
+
+    const striker = currentBatsmen[strikerIndex] || currentBatsmen[0]
+    const nonStriker = currentBatsmen.length > 1
+      ? currentBatsmen[strikerIndex === 0 ? 1 : 0]
+      : null
+
+    if (useLocalScoring) {
+      const engine = new LocalMatchEngine(matchId)
+      // Use dedicated retireHurt method (doesn't count as wicket, no ball consumed)
+      engine.retireHurt(striker.team_player_id)
+
+      // Refresh from localStorage
+      const localState = loadLocalMatchState(matchId)
+      if (localState) {
+        const { match: newMatch, balls: localBalls } = localState
+
+        // If innings changed (first innings completed), skip over check and just update state
+        if (newMatch.current_innings !== match.current_innings) {
+          setMatch({ ...newMatch, balls: localBalls })
+          setBattingStats(localState.battingStats)
+          setBowlingStats(localState.bowlingStats)
+          return
+        }
+
+        const updatedMatch = { ...newMatch, balls: localBalls }
+        setMatch(updatedMatch)
+        setBattingStats(localState.battingStats)
+        setBowlingStats(localState.bowlingStats)
+
+        // Update available players for correct teams
+        if (updatedMatch.team1 && updatedMatch.team2) {
+          const currentInningsBatsmen = localState.battingStats.filter((s: any) => s.innings_number === updatedMatch.current_innings && !s.is_out)
+          let battingTeam, bowlingTeam
+
+          if (currentInningsBatsmen.length > 0) {
+            const batsmanTeamId = currentInningsBatsmen[0].team_player_id
+            const isTeam1Batting = updatedMatch.team1.team_players?.some((p: any) => p.id === batsmanTeamId)
+            battingTeam = isTeam1Batting ? updatedMatch.team1 : updatedMatch.team2
+            bowlingTeam = isTeam1Batting ? updatedMatch.team2 : updatedMatch.team1
+          } else {
+            const isFirstInnings = updatedMatch.current_innings === 1
+            battingTeam = isFirstInnings ? updatedMatch.team1 : updatedMatch.team2
+            bowlingTeam = isFirstInnings ? updatedMatch.team2 : updatedMatch.team1
+          }
+
+          setAvailableBatsmen(battingTeam.team_players || [])
+          setAvailableBowlers(bowlingTeam.team_players || [])
+        }
+      }
+    } else {
+      // For database mode, still use recordWicket (no local engine available)
+      await recordWicket({
+        matchId,
+        batsmanId: striker.team_player_id,
+        nonStrikerId: nonStriker?.team_player_id || striker.team_player_id,
+        bowlerId: currentBowler.team_player_id,
+        wicketType: 'retired_hurt',
+      })
+      await fetchMatchData(true)
+    }
+
+    setShowRetireHurtDialog(false)
+
+    // Always prompt for new batsman
+    const totalPlayersInTeam = availableBatsmen.length
+    const batsmenWhoHaveBatted = battingStats.filter(
+      (stat: any) => stat.innings_number === match.current_innings
+    ).length
+
+    const retiredHurtPlayers = battingStats.filter(
+      (stat: any) =>
+        stat.innings_number === match.current_innings &&
+        stat.dismissal_type === 'retired_hurt' &&
+        stat.is_out
+    ).length
+
+    const availableBatsmenCount = totalPlayersInTeam - batsmenWhoHaveBatted + retiredHurtPlayers + 1
+
+    if (availableBatsmenCount > 0) {
+      setShowBatsmanDialog(true)
+    }
+  }
+
   const handleWideClick = () => {
     setShowWideDialog(true)
   }
@@ -1107,7 +1193,7 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
             ))}
           </div>
 
-          <div className="grid grid-cols-3 gap-1.5">
+          <div className="grid grid-cols-4 gap-1.5 mb-1.5">
             <Dialog open={showWicketDialog} onOpenChange={setShowWicketDialog}>
               <Button
                 variant="destructive"
@@ -1132,7 +1218,6 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
                       <SelectItem value="run_out">Run Out</SelectItem>
                       <SelectItem value="stumped">Stumped</SelectItem>
                       <SelectItem value="hit_wicket">Hit Wicket</SelectItem>
-                      <SelectItem value="retired_hurt">Retired Hurt</SelectItem>
                     </SelectContent>
                   </Select>
                   <Button onClick={handleWicket} className="w-full" disabled={!wicketType}>
@@ -1144,6 +1229,34 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
 
             <Button onClick={handleWideClick} variant="outline" className="h-10 text-sm">Wide</Button>
             <Button onClick={handleNoBallClick} variant="outline" className="h-10 text-sm">No Ball</Button>
+
+            <Dialog open={showRetireHurtDialog} onOpenChange={setShowRetireHurtDialog}>
+              <Button
+                variant="outline"
+                className="h-10 text-sm text-orange-600 border-orange-600 hover:bg-orange-50"
+                onClick={() => setShowRetireHurtDialog(true)}
+              >
+                Retire Hurt
+              </Button>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Retire Hurt</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <p className="text-sm text-gray-600">
+                    The current striker ({currentBatsmen[strikerIndex]?.player?.player_name || 'Batsman'}) will retire hurt. This does not count as a wicket. The batsman can return to bat later when another wicket falls.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button onClick={handleRetireHurt} className="flex-1" variant="destructive">
+                      Confirm Retire Hurt
+                    </Button>
+                    <Button onClick={() => setShowRetireHurtDialog(false)} className="flex-1" variant="outline">
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
         </div>
       </div>
