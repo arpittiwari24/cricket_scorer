@@ -37,6 +37,13 @@ export async function getMatchStats(matchId: string) {
     .select('*, player:team_player_id(*)')
     .eq('match_id', matchId)
 
+  const { data: balls, error: ballsError } = await supabase
+    .from('balls')
+    .select('*')
+    .eq('match_id', matchId)
+    .order('over_number', { ascending: true })
+    .order('ball_number', { ascending: true })
+
   if (battingError || bowlingError) {
     return {
       success: false,
@@ -49,6 +56,7 @@ export async function getMatchStats(matchId: string) {
     data: {
       batting,
       bowling,
+      balls: balls || [],
     },
   }
 }

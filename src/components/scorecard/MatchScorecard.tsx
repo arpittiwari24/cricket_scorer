@@ -8,9 +8,10 @@ interface ScorecardProps {
   match: any
   battingStats: any[]
   bowlingStats: any[]
+  balls?: any[]
 }
 
-export function MatchScorecard({ match, battingStats, bowlingStats }: ScorecardProps) {
+export function MatchScorecard({ match, battingStats, bowlingStats, balls = [] }: ScorecardProps) {
   const isFirstInnings = match.current_innings === 1
   const team1Stats = battingStats.filter((s: any) => s.innings_number === 1)
   const team2Stats = battingStats.filter((s: any) => s.innings_number === 2)
@@ -185,6 +186,80 @@ export function MatchScorecard({ match, battingStats, bowlingStats }: ScorecardP
 
       {/* Second Innings - Bowling */}
       {team2BowlingStats.length > 0 && renderBowlingTable(team2BowlingStats, match.team1?.name || 'Team 1', 2)}
+
+      {/* Ball-by-Ball Commentary */}
+      {match.status === 'completed' && balls.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-xl">Ball-by-Ball Commentary</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {/* Innings 1 Commentary */}
+            {balls.filter((b: any) => b.innings_number === 1).length > 0 && (
+              <div className="mb-6">
+                <h3 className="font-semibold text-lg mb-3 text-gray-800">
+                  First Innings
+                </h3>
+                <div className="space-y-3">
+                  {balls
+                    .filter((b: any) => b.innings_number === 1)
+                    .sort((a: any, b: any) => {
+                      if (a.over_number !== b.over_number) return b.over_number - a.over_number
+                      return b.ball_number - a.ball_number
+                    })
+                    .map((ball: any, idx: number) => {
+                      const overBall = `${ball.over_number}.${Number(ball.ball_number) + 1}`
+                      return (
+                        <div key={idx} className="border-b pb-3 last:border-b-0">
+                          <div className="flex items-start gap-3">
+                            <span className="font-bold text-sm text-gray-700 min-w-[50px] mt-0.5">
+                              {overBall}
+                            </span>
+                            <p className="text-sm text-gray-800 flex-1">
+                              {ball.commentary || 'No commentary available'}
+                            </p>
+                          </div>
+                        </div>
+                      )
+                    })}
+                </div>
+              </div>
+            )}
+
+            {/* Innings 2 Commentary */}
+            {balls.filter((b: any) => b.innings_number === 2).length > 0 && (
+              <div>
+                <h3 className="font-semibold text-lg mb-3 text-gray-800">
+                  Second Innings
+                </h3>
+                <div className="space-y-3">
+                  {balls
+                    .filter((b: any) => b.innings_number === 2)
+                    .sort((a: any, b: any) => {
+                      if (a.over_number !== b.over_number) return b.over_number - a.over_number
+                      return b.ball_number - a.ball_number
+                    })
+                    .map((ball: any, idx: number) => {
+                      const overBall = `${ball.over_number}.${Number(ball.ball_number) + 1}`
+                      return (
+                        <div key={idx} className="border-b pb-3 last:border-b-0">
+                          <div className="flex items-start gap-3">
+                            <span className="font-bold text-sm text-gray-700 min-w-[50px] mt-0.5">
+                              {overBall}
+                            </span>
+                            <p className="text-sm text-gray-800 flex-1">
+                              {ball.commentary || 'No commentary available'}
+                            </p>
+                          </div>
+                        </div>
+                      )
+                    })}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

@@ -4,7 +4,7 @@ import { use, useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { getMatch } from '@/actions/matches'
 import { recordRuns, recordWicket, recordWide, recordNoBall, undoLastBall } from '@/actions/scoring'
@@ -13,6 +13,16 @@ import { getMatchStats } from '@/actions/stats'
 import { calculateStrikeRate } from '@/lib/cricket/stats-calculator'
 import { formatOvers } from '@/lib/cricket/rules'
 import { MatchScorecard } from '@/components/scorecard/MatchScorecard'
+import {
+  loadLocalMatchState,
+  saveLocalMatchState,
+  initializeLocalMatchState,
+  hasLocalMatchState,
+  clearLocalMatchState
+} from '@/lib/cricket/local-scorer'
+import { LocalMatchEngine } from '@/lib/cricket/local-match-engine'
+import { completeMatch } from '@/actions/sync'
+import { Undo } from 'lucide-react'
 
 export default function MatchScoringPage({ params }: { params: Promise<{ matchId: string }> }) {
   const { matchId } = use(params)
@@ -20,8 +30,10 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
   const [match, setMatch] = useState<any>(null)
   const [battingStats, setBattingStats] = useState<any[]>([])
   const [bowlingStats, setBowlingStats] = useState<any[]>([])
+  const [balls, setBalls] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [viewMode, setViewMode] = useState<'scorecard' | 'live'>('scorecard')
+  const [useLocalScoring, setUseLocalScoring] = useState(false)
   const [currentBatsmen, setCurrentBatsmen] = useState<any[]>([])
   const [currentBowler, setCurrentBowler] = useState<any>(null)
   const [showWicketDialog, setShowWicketDialog] = useState(false)
@@ -32,8 +44,6 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
   const [wicketType, setWicketType] = useState('')
   const [newBowlerId, setNewBowlerId] = useState('')
   const [newBatsmanId, setNewBatsmanId] = useState('')
-  const [wideRuns, setWideRuns] = useState(0)
-  const [noBallRuns, setNoBallRuns] = useState(0)
   const [strikerIndex, setStrikerIndex] = useState(0)
   const [availableBatsmen, setAvailableBatsmen] = useState<any[]>([])
   const [availableBowlers, setAvailableBowlers] = useState<any[]>([])
@@ -45,23 +55,225 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
   const [newInningsBatsman2, setNewInningsBatsman2] = useState('')
   const [newInningsBowler, setNewInningsBowler] = useState('')
 
+  // Check if match is complete and auto-sync
+  const checkAndCompleteMatch = async () => {
+    console.log('=== checkAndCompleteMatch CALLED ===')
+
+    // Check localStorage directly instead of relying on state variable
+    const localState = loadLocalMatchState(matchId)
+    if (!localState) {
+      console.log('No local state found, skipping match completion check')
+      return
+    }
+
+    const { match: localMatch } = localState
+    const isFirstInnings = localMatch.current_innings === 1
+    const currentOvers = isFirstInnings ? localMatch.team1_overs : localMatch.team2_overs
+    const currentWickets = isFirstInnings ? localMatch.team1_wickets : localMatch.team2_wickets
+    const currentScore = isFirstInnings ? localMatch.team1_score : localMatch.team2_score
+
+    console.log('Match completion check:', {
+      innings: localMatch.current_innings,
+      isFirstInnings,
+      currentOvers,
+      totalOvers: localMatch.total_overs,
+      currentWickets,
+      currentScore,
+      team1_score: localMatch.team1_score,
+      team2_score: localMatch.team2_score
+    })
+
+    let isMatchComplete = false
+    let resultText = ''
+
+    // Check if innings complete
+    if (currentOvers >= localMatch.total_overs || currentWickets >= 10) {
+      console.log('Innings complete detected!')
+      if (localMatch.current_innings === 1) {
+        console.log('First innings complete, transitioning to innings 2')
+        // First innings complete, start second innings
+        localMatch.current_innings = 2
+        localMatch.target = (isFirstInnings ? localMatch.team1_score : localMatch.team2_score) + 1
+        saveLocalMatchState(matchId, localState)
+
+        // Reload data to trigger innings setup dialog
+        await fetchMatchData(true)
+        return
+      } else {
+        console.log('Second innings complete - MATCH OVER')
+        // Second innings complete - match over
+        isMatchComplete = true
+
+        // Determine which team batted in which innings by checking batting stats
+        const innings1Batsmen = localState.battingStats.filter((s: any) => s.innings_number === 1)
+
+        let team1BattedInnings1 = false
+        if (innings1Batsmen.length > 0) {
+          const innings1BatsmanId = innings1Batsmen[0].team_player_id
+          team1BattedInnings1 = localMatch.team1.team_players?.some((p: any) => p.id === innings1BatsmanId)
+        }
+
+        const team1Name = localMatch.team1?.name || 'Team 1'
+        const team2Name = localMatch.team2?.name || 'Team 2'
+        const team1Score = team1BattedInnings1 ? localMatch.team1_score : localMatch.team2_score
+        const team2Score = team1BattedInnings1 ? localMatch.team2_score : localMatch.team1_score
+        const team2Wickets = team1BattedInnings1 ? localMatch.team2_wickets : localMatch.team1_wickets
+        const battingFirstTeam = team1BattedInnings1 ? team1Name : team2Name
+        const battingSecondTeam = team1BattedInnings1 ? team2Name : team1Name
+
+        if (team2Score > team1Score) {
+          resultText = `${battingSecondTeam} won by ${10 - team2Wickets} wickets`
+        } else if (team1Score > team2Score) {
+          resultText = `${battingFirstTeam} won by ${team1Score - team2Score} runs`
+        } else {
+          resultText = 'Match tied'
+        }
+      }
+    }
+
+    // Check if target chased in innings 2
+    if (localMatch.current_innings === 2) {
+      const innings1Score = isFirstInnings ? localMatch.team2_score : localMatch.team1_score
+
+      if (currentScore > innings1Score) {
+        isMatchComplete = true
+
+        // Determine which team is batting in innings 2
+        const innings2Batsmen = localState.battingStats.filter((s: any) => s.innings_number === 2)
+        let team2BattingInInnings2 = false
+        if (innings2Batsmen.length > 0) {
+          const innings2BatsmanId = innings2Batsmen[0].team_player_id
+          team2BattingInInnings2 = localMatch.team2.team_players?.some((p: any) => p.id === innings2BatsmanId)
+        }
+
+        const chasingTeam = team2BattingInInnings2 ? localMatch.team2?.name : localMatch.team1?.name
+        resultText = `${chasingTeam} won by ${10 - currentWickets} wickets`
+      }
+    }
+
+    // Auto-sync if match complete
+    if (isMatchComplete) {
+      console.log('MATCH IS COMPLETE! Winner:', resultText)
+      console.log('Calling completeMatch API...')
+
+      const result = await completeMatch(
+        matchId,
+        {
+          match: localState.match,
+          battingStats: localState.battingStats,
+          bowlingStats: localState.bowlingStats,
+          balls: localState.balls
+        },
+        resultText
+      )
+
+      console.log('completeMatch result:', result)
+
+      if (result.success) {
+        console.log('Match completed successfully! Clearing localStorage and reloading...')
+        clearLocalMatchState(matchId)
+        setUseLocalScoring(false)
+        alert('Match completed! ' + resultText)
+        window.location.reload()
+      } else {
+        console.error('Failed to complete match:', result.error)
+        alert('Error completing match: ' + (result.error || 'Unknown error'))
+      }
+    } else {
+      console.log('Match NOT complete yet, isMatchComplete =', isMatchComplete)
+    }
+  }
+
   const fetchMatchData = async (skipOverCheck = false) => {
+    // Check if we're using local scoring
+    const hasLocal = hasLocalMatchState(matchId)
+
+    // If localStorage exists, prioritize it regardless of useLocalScoring state
+    if (hasLocal) {
+      // Enable local scoring mode
+      if (!useLocalScoring) {
+        setUseLocalScoring(true)
+      }
+
+      // Load from localStorage - instant, no database calls
+      const localState = loadLocalMatchState(matchId)
+      if (localState) {
+        const { match: matchData, battingStats: localBattingStats, bowlingStats: localBowlingStats, balls: localBalls } = localState
+
+        // Check if innings changed
+        if (previousInnings !== matchData.current_innings) {
+          setPreviousInnings(matchData.current_innings)
+
+          const batsmenInThisInnings = localBattingStats.filter((s: any) => s.innings_number === matchData.current_innings)
+          if (batsmenInThisInnings.length === 0) {
+            setShowInningsSetup(true)
+          }
+        }
+
+        const isFirstInnings = matchData.current_innings === 1
+        const currentBalls = isFirstInnings ? matchData.team1_balls : matchData.team2_balls
+
+        if (!skipOverCheck) {
+          if (previousBalls > 0 && currentBalls === 0) {
+            setStrikerIndex(prev => prev === 0 ? 1 : 0)
+            setShowBowlerDialog(true)
+            // Clear manually selected bowler when over completes
+            setManuallySelectedBowlerId(null)
+          }
+        }
+
+        setPreviousBalls(currentBalls)
+        // Attach balls to match object so commentary can display - CREATE NEW OBJECT for React to detect change
+        setMatch({ ...matchData, balls: localBalls })
+        setBattingStats(localBattingStats)
+        setBowlingStats(localBowlingStats)
+
+        if (matchData.team1 && matchData.team2) {
+          // Determine batting team from actual batting stats
+          const currentInningsBatsmen = localBattingStats.filter((s: any) => s.innings_number === matchData.current_innings && !s.is_out)
+          let battingTeam, bowlingTeam
+
+          if (currentInningsBatsmen.length > 0) {
+            // Find which team the current batsmen belong to
+            const batsmanTeamId = currentInningsBatsmen[0].team_player_id
+            const isTeam1Batting = matchData.team1.team_players?.some((p: any) => p.id === batsmanTeamId)
+            battingTeam = isTeam1Batting ? matchData.team1 : matchData.team2
+            bowlingTeam = isTeam1Batting ? matchData.team2 : matchData.team1
+          } else {
+            // Fallback to innings-based logic
+            battingTeam = isFirstInnings ? matchData.team1 : matchData.team2
+            bowlingTeam = isFirstInnings ? matchData.team2 : matchData.team1
+          }
+
+          setAvailableBatsmen(battingTeam.team_players || [])
+          setAvailableBowlers(bowlingTeam.team_players || [])
+        }
+
+        setIsLoading(false)
+
+        // Check if match/innings is complete on load
+        console.log('Calling checkAndCompleteMatch from localStorage load path...')
+        await checkAndCompleteMatch()
+
+        return
+      }
+    }
+
+    // Fetch from database (for non-creator viewers or initial load)
     const matchResult = await getMatch(matchId)
     const statsResult = await getMatchStats(matchId) as any
 
     if (matchResult.success && matchResult.data) {
       const matchData = matchResult.data
 
-      // Check if innings changed (new innings started)
+      // Check if innings changed
       if (previousInnings !== matchData.current_innings) {
         setPreviousInnings(matchData.current_innings)
 
-        // Check if there are any batsmen for this innings
         const batsmenInThisInnings = statsResult.success
           ? (statsResult.data.batting || []).filter((s: any) => s.innings_number === matchData.current_innings)
           : []
 
-        // If no batsmen yet, show innings setup dialog
         if (batsmenInThisInnings.length === 0) {
           setShowInningsSetup(true)
         }
@@ -70,38 +282,95 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
       const isFirstInnings = matchData.current_innings === 1
       const currentBalls = isFirstInnings ? matchData.team1_balls : matchData.team2_balls
 
-      // Check if over just completed - only during polling, not after user actions
       if (!skipOverCheck) {
-        // If balls went from non-zero to 0, an over just completed
         if (previousBalls > 0 && currentBalls === 0) {
-          // Rotate strike at end of over
           setStrikerIndex(prev => prev === 0 ? 1 : 0)
-          // Auto-prompt for next bowler
           setShowBowlerDialog(true)
+          // Clear manually selected bowler when over completes
+          setManuallySelectedBowlerId(null)
         }
       }
 
-      // Always update previousBalls to keep state in sync
       setPreviousBalls(currentBalls)
       setMatch(matchData)
 
-      // Get available players
-      const battingTeamId = isFirstInnings ? matchData.team1_id : matchData.team2_id
-      const bowlingTeamId = isFirstInnings ? matchData.team2_id : matchData.team1_id
+      if (statsResult.success) {
+        // Enrich batting stats with player data - ALWAYS ensure player object exists
+        const enrichedBattingStats = (statsResult.data.batting || []).map((stat: any) => {
+          if (!stat.player || !stat.player.player_name) {
+            const isFirstInnings = stat.innings_number === 1
+            const battingTeam = isFirstInnings ? matchData.team1 : matchData.team2
+            const playerData = battingTeam.team_players?.find((p: any) => p.id === stat.team_player_id)
+            return {
+              ...stat,
+              player: playerData ? { player_name: playerData.player_name } : stat.player
+            }
+          }
+          return stat
+        })
 
-      // Get batting team players who haven't batted yet or are not out
-      if (matchData.team1 && matchData.team2) {
-        const battingTeam = isFirstInnings ? matchData.team1 : matchData.team2
-        const bowlingTeam = isFirstInnings ? matchData.team2 : matchData.team1
+        // Enrich bowling stats with player data - ALWAYS ensure player object exists
+        const enrichedBowlingStats = (statsResult.data.bowling || []).map((stat: any) => {
+          if (!stat.player || !stat.player.player_name) {
+            const isFirstInnings = stat.innings_number === 1
+            const bowlingTeam = isFirstInnings ? matchData.team2 : matchData.team1
+            const playerData = bowlingTeam.team_players?.find((p: any) => p.id === stat.team_player_id)
+            return {
+              ...stat,
+              player: playerData ? { player_name: playerData.player_name } : stat.player
+            }
+          }
+          return stat
+        })
 
-        setAvailableBatsmen(battingTeam.team_players || [])
-        setAvailableBowlers(bowlingTeam.team_players || [])
+        // Set enriched stats in React state
+        setBattingStats(enrichedBattingStats)
+        setBowlingStats(enrichedBowlingStats)
+        setBalls(statsResult.data.balls || [])
+
+        // Determine and set available players for correct teams
+        if (matchData.team1 && matchData.team2) {
+          // Determine batting team from actual batting stats
+          const currentInningsBatsmen = enrichedBattingStats.filter((s: any) => s.innings_number === matchData.current_innings && !s.is_out)
+          let battingTeam, bowlingTeam
+
+          if (currentInningsBatsmen.length > 0) {
+            // Find which team the current batsmen belong to
+            const batsmanTeamId = currentInningsBatsmen[0].team_player_id
+            const isTeam1Batting = matchData.team1.team_players?.some((p: any) => p.id === batsmanTeamId)
+            battingTeam = isTeam1Batting ? matchData.team1 : matchData.team2
+            bowlingTeam = isTeam1Batting ? matchData.team2 : matchData.team1
+          } else {
+            // Fallback to innings-based logic
+            const isFirstInnings = matchData.current_innings === 1
+            battingTeam = isFirstInnings ? matchData.team1 : matchData.team2
+            bowlingTeam = isFirstInnings ? matchData.team2 : matchData.team1
+          }
+
+          setAvailableBatsmen(battingTeam.team_players || [])
+          setAvailableBowlers(bowlingTeam.team_players || [])
+        }
+
+        // Initialize localStorage for creator on first load
+        if (session?.user?.id === matchData.created_by && matchData.status === 'live') {
+          const hasLocal = hasLocalMatchState(matchId)
+          if (!hasLocal) {
+            initializeLocalMatchState(
+              matchId,
+              matchData,
+              enrichedBattingStats,
+              enrichedBowlingStats,
+              matchData.balls || []
+            )
+          }
+          // Always enable local scoring for creator with live match
+          setUseLocalScoring(true)
+
+          // Check if match/innings is complete
+          console.log('Calling checkAndCompleteMatch from database load path...')
+          await checkAndCompleteMatch()
+        }
       }
-    }
-
-    if (statsResult.success) {
-      setBattingStats(statsResult.data.batting || [])
-      setBowlingStats(statsResult.data.bowling || [])
     }
 
     setIsLoading(false)
@@ -109,17 +378,26 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
 
   useEffect(() => {
     fetchMatchData()
-    // Auto-refresh every 500ms for more instant updates
-    const interval = setInterval(fetchMatchData, 500)
-    return () => clearInterval(interval)
-  }, [matchId])
+
+    // Only poll database if not using local scoring
+    if (!useLocalScoring) {
+      const interval = setInterval(fetchMatchData, 2000)
+      return () => clearInterval(interval)
+    }
+  }, [matchId, useLocalScoring])
 
   useEffect(() => {
     if (battingStats && match) {
       const activeBatsmen = battingStats.filter(
         (s: any) => !s.is_out && s.innings_number === match.current_innings
       )
-      setCurrentBatsmen(activeBatsmen.slice(0, 2))
+
+      // ALWAYS sort by team_player_id to maintain consistent order
+      const sortedBatsmen = activeBatsmen.sort((a: any, b: any) => {
+        return a.team_player_id.localeCompare(b.team_player_id)
+      }).slice(0, 2)
+
+      setCurrentBatsmen(sortedBatsmen)
     }
   }, [battingStats, match])
 
@@ -182,7 +460,7 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
   if (match.status === 'completed') {
     return (
       <div className="min-h-screen bg-white px-4 py-6">
-        <MatchScorecard match={match} battingStats={battingStats} bowlingStats={bowlingStats} />
+        <MatchScorecard match={match} battingStats={battingStats} bowlingStats={bowlingStats} balls={balls} />
       </div>
     )
   }
@@ -202,7 +480,7 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
             </Button>
           </div>
         )}
-        <MatchScorecard match={match} battingStats={battingStats} bowlingStats={bowlingStats} />
+        <MatchScorecard match={match} battingStats={battingStats} bowlingStats={bowlingStats} balls={balls} />
       </div>
     )
   }
@@ -211,7 +489,7 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
   if (match.status === 'live' && !isCreator) {
     return (
       <div className="min-h-screen bg-white px-4 py-6">
-        <MatchScorecard match={match} battingStats={battingStats} bowlingStats={bowlingStats} />
+        <MatchScorecard match={match} battingStats={battingStats} bowlingStats={bowlingStats} balls={balls} />
       </div>
     )
   }
@@ -231,23 +509,95 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
       ? currentBatsmen[strikerIndex === 0 ? 1 : 0]
       : null
 
-    await recordRuns({
-      matchId,
-      runs,
-      batsmanId: striker.team_player_id,
-      nonStrikerId: nonStriker?.team_player_id || striker.team_player_id, // Use same batsman if only 1
-      bowlerId: currentBowler.team_player_id,
-    })
+    if (useLocalScoring) {
+      // Use local engine for instant updates
+      const engine = new LocalMatchEngine(matchId)
+      engine.recordRuns(
+        runs,
+        striker.team_player_id,
+        nonStriker?.team_player_id || striker.team_player_id,
+        currentBowler.team_player_id
+      )
 
-    // Clear manually selected bowler since they've now bowled
-    setManuallySelectedBowlerId(null)
+      // Check if match complete and auto-sync FIRST
+      await checkAndCompleteMatch()
+
+      // INSTANT refresh from localStorage - no async, no await
+      const localState = loadLocalMatchState(matchId)
+      if (localState) {
+        const { match: newMatch, balls: localBalls } = localState
+
+        // If innings changed (first innings completed), skip over check and just update state
+        if (newMatch.current_innings !== match.current_innings) {
+          setMatch({ ...newMatch, balls: localBalls })
+          setBattingStats(localState.battingStats)
+          setBowlingStats(localState.bowlingStats)
+          return
+        }
+
+        const isFirstInnings = newMatch.current_innings === 1
+        const currentBalls = isFirstInnings ? newMatch.team1_balls : newMatch.team2_balls
+        const currentOvers = isFirstInnings ? newMatch.team1_overs : newMatch.team2_overs
+        const currentWickets = isFirstInnings ? newMatch.team1_wickets : newMatch.team2_wickets
+
+        console.log('Over check - previousBalls:', previousBalls, 'currentBalls:', currentBalls)
+
+        // Check if innings complete - if so, don't show bowler dialog
+        const isInningsComplete = currentOvers >= newMatch.total_overs || currentWickets >= 10
+
+        // Check if over just completed (balls reset to 0) AND innings not complete
+        if (previousBalls > 0 && currentBalls === 0 && !isInningsComplete) {
+          console.log('OVER COMPLETED! Rotating strike and showing bowler dialog')
+          setStrikerIndex(prev => prev === 0 ? 1 : 0)
+          setShowBowlerDialog(true)
+          // Clear manually selected bowler when over completes
+          setManuallySelectedBowlerId(null)
+        }
+
+        setPreviousBalls(currentBalls)
+        // Attach balls to match object so commentary displays live - CREATE NEW OBJECT for React to detect change
+        const updatedMatch = { ...newMatch, balls: localBalls }
+        setMatch(updatedMatch)
+        setBattingStats(localState.battingStats)
+        setBowlingStats(localState.bowlingStats)
+
+        // Update available players for correct teams
+        if (updatedMatch.team1 && updatedMatch.team2) {
+          // Determine batting team from actual batting stats
+          const currentInningsBatsmen = localState.battingStats.filter((s: any) => s.innings_number === updatedMatch.current_innings && !s.is_out)
+          let battingTeam, bowlingTeam
+
+          if (currentInningsBatsmen.length > 0) {
+            // Find which team the current batsmen belong to
+            const batsmanTeamId = currentInningsBatsmen[0].team_player_id
+            const isTeam1Batting = updatedMatch.team1.team_players?.some((p: any) => p.id === batsmanTeamId)
+            battingTeam = isTeam1Batting ? updatedMatch.team1 : updatedMatch.team2
+            bowlingTeam = isTeam1Batting ? updatedMatch.team2 : updatedMatch.team1
+          } else {
+            // Fallback to innings-based logic
+            battingTeam = isFirstInnings ? updatedMatch.team1 : updatedMatch.team2
+            bowlingTeam = isFirstInnings ? updatedMatch.team2 : updatedMatch.team1
+          }
+
+          setAvailableBatsmen(battingTeam.team_players || [])
+          setAvailableBowlers(bowlingTeam.team_players || [])
+        }
+      }
+    } else {
+      await recordRuns({
+        matchId,
+        runs,
+        batsmanId: striker.team_player_id,
+        nonStrikerId: nonStriker?.team_player_id || striker.team_player_id,
+        bowlerId: currentBowler.team_player_id,
+      })
+      await fetchMatchData(true)
+    }
 
     // Rotate strike on odd runs (1, 3, 5) - only if there are 2 batsmen
     if (runs % 2 === 1 && currentBatsmen.length > 1) {
       setStrikerIndex(prev => prev === 0 ? 1 : 0)
     }
-
-    await fetchMatchData(true) // Skip over check to avoid race condition
   }
 
   const handleWicket = async () => {
@@ -258,16 +608,86 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
       ? currentBatsmen[strikerIndex === 0 ? 1 : 0]
       : null
 
-    await recordWicket({
-      matchId,
-      batsmanId: striker.team_player_id,
-      nonStrikerId: nonStriker?.team_player_id || striker.team_player_id,
-      bowlerId: currentBowler.team_player_id,
-      wicketType: wicketType as any,
-    })
+    if (useLocalScoring) {
+      const engine = new LocalMatchEngine(matchId)
+      engine.recordWicket(
+        striker.team_player_id,
+        nonStriker?.team_player_id || striker.team_player_id,
+        currentBowler.team_player_id,
+        wicketType as any
+      )
 
-    // Clear manually selected bowler since they've now bowled
-    setManuallySelectedBowlerId(null)
+      // Check if match complete and auto-sync FIRST
+      await checkAndCompleteMatch()
+
+      // INSTANT refresh from localStorage
+      const localState = loadLocalMatchState(matchId)
+      if (localState) {
+        const { match: newMatch, balls: localBalls } = localState
+
+        // If innings changed (first innings completed), skip over check and just update state
+        if (newMatch.current_innings !== match.current_innings) {
+          setMatch({ ...newMatch, balls: localBalls })
+          setBattingStats(localState.battingStats)
+          setBowlingStats(localState.bowlingStats)
+          return
+        }
+
+        const isFirstInnings = newMatch.current_innings === 1
+        const currentBalls = isFirstInnings ? newMatch.team1_balls : newMatch.team2_balls
+        const currentOvers = isFirstInnings ? newMatch.team1_overs : newMatch.team2_overs
+        const currentWickets = isFirstInnings ? newMatch.team1_wickets : newMatch.team2_wickets
+
+        // Check if innings complete - if so, don't show bowler dialog
+        const isInningsComplete = currentOvers >= newMatch.total_overs || currentWickets >= 10
+
+        // Check if over just completed (balls reset to 0) AND innings not complete
+        if (previousBalls > 0 && currentBalls === 0 && !isInningsComplete) {
+          setStrikerIndex(prev => prev === 0 ? 1 : 0)
+          setShowBowlerDialog(true)
+          // Clear manually selected bowler when over completes
+          setManuallySelectedBowlerId(null)
+        }
+
+        setPreviousBalls(currentBalls)
+        // Attach balls to match object so commentary displays live - CREATE NEW OBJECT for React to detect change
+        const updatedMatch = { ...newMatch, balls: localBalls }
+        setMatch(updatedMatch)
+        setBattingStats(localState.battingStats)
+        setBowlingStats(localState.bowlingStats)
+
+        // Update available players for correct teams
+        if (updatedMatch.team1 && updatedMatch.team2) {
+          // Determine batting team from actual batting stats
+          const currentInningsBatsmen = localState.battingStats.filter((s: any) => s.innings_number === updatedMatch.current_innings && !s.is_out)
+          let battingTeam, bowlingTeam
+
+          if (currentInningsBatsmen.length > 0) {
+            // Find which team the current batsmen belong to
+            const batsmanTeamId = currentInningsBatsmen[0].team_player_id
+            const isTeam1Batting = updatedMatch.team1.team_players?.some((p: any) => p.id === batsmanTeamId)
+            battingTeam = isTeam1Batting ? updatedMatch.team1 : updatedMatch.team2
+            bowlingTeam = isTeam1Batting ? updatedMatch.team2 : updatedMatch.team1
+          } else {
+            // Fallback to innings-based logic
+            battingTeam = isFirstInnings ? updatedMatch.team1 : updatedMatch.team2
+            bowlingTeam = isFirstInnings ? updatedMatch.team2 : updatedMatch.team1
+          }
+
+          setAvailableBatsmen(battingTeam.team_players || [])
+          setAvailableBowlers(bowlingTeam.team_players || [])
+        }
+      }
+    } else {
+      await recordWicket({
+        matchId,
+        batsmanId: striker.team_player_id,
+        nonStrikerId: nonStriker?.team_player_id || striker.team_player_id,
+        bowlerId: currentBowler.team_player_id,
+        wicketType: wicketType as any,
+      })
+      await fetchMatchData(true)
+    }
 
     setShowWicketDialog(false)
     setWicketType('')
@@ -296,8 +716,6 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
     if (availableBatsmenCount > 0) {
       setShowBatsmanDialog(true)
     }
-
-    await fetchMatchData(true) // Skip over check to avoid race condition
   }
 
   const handleWideClick = () => {
@@ -312,16 +730,69 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
       ? currentBatsmen[strikerIndex === 0 ? 1 : 0]
       : null
 
-    await recordWide({
-      matchId,
-      batsmanId: striker.team_player_id,
-      nonStrikerId: nonStriker?.team_player_id || striker.team_player_id,
-      bowlerId: currentBowler.team_player_id,
-      additionalRuns,
-    })
+    if (useLocalScoring) {
+      const engine = new LocalMatchEngine(matchId)
+      engine.recordWide(
+        striker.team_player_id,
+        nonStriker?.team_player_id || striker.team_player_id,
+        currentBowler.team_player_id,
+        additionalRuns
+      )
 
-    // Clear manually selected bowler since they've now bowled
-    setManuallySelectedBowlerId(null)
+      // INSTANT refresh from localStorage
+      const localState = loadLocalMatchState(matchId)
+      if (localState) {
+        const { match: newMatch, balls: localBalls } = localState
+        const isFirstInnings = newMatch.current_innings === 1
+        const currentBalls = isFirstInnings ? newMatch.team1_balls : newMatch.team2_balls
+
+        // Check if over just completed (balls reset to 0)
+        if (previousBalls > 0 && currentBalls === 0) {
+          setStrikerIndex(prev => prev === 0 ? 1 : 0)
+          setShowBowlerDialog(true)
+          // Clear manually selected bowler when over completes
+          setManuallySelectedBowlerId(null)
+        }
+
+        setPreviousBalls(currentBalls)
+        // Attach balls to match object so commentary displays live - CREATE NEW OBJECT for React to detect change
+        const updatedMatch = { ...newMatch, balls: localBalls }
+        setMatch(updatedMatch)
+        setBattingStats(localState.battingStats)
+        setBowlingStats(localState.bowlingStats)
+
+        // Update available players for correct teams
+        if (updatedMatch.team1 && updatedMatch.team2) {
+          // Determine batting team from actual batting stats
+          const currentInningsBatsmen = localState.battingStats.filter((s: any) => s.innings_number === updatedMatch.current_innings && !s.is_out)
+          let battingTeam, bowlingTeam
+
+          if (currentInningsBatsmen.length > 0) {
+            // Find which team the current batsmen belong to
+            const batsmanTeamId = currentInningsBatsmen[0].team_player_id
+            const isTeam1Batting = updatedMatch.team1.team_players?.some((p: any) => p.id === batsmanTeamId)
+            battingTeam = isTeam1Batting ? updatedMatch.team1 : updatedMatch.team2
+            bowlingTeam = isTeam1Batting ? updatedMatch.team2 : updatedMatch.team1
+          } else {
+            // Fallback to innings-based logic
+            battingTeam = isFirstInnings ? updatedMatch.team1 : updatedMatch.team2
+            bowlingTeam = isFirstInnings ? updatedMatch.team2 : updatedMatch.team1
+          }
+
+          setAvailableBatsmen(battingTeam.team_players || [])
+          setAvailableBowlers(bowlingTeam.team_players || [])
+        }
+      }
+    } else {
+      await recordWide({
+        matchId,
+        batsmanId: striker.team_player_id,
+        nonStrikerId: nonStriker?.team_player_id || striker.team_player_id,
+        bowlerId: currentBowler.team_player_id,
+        additionalRuns,
+      })
+      await fetchMatchData(true)
+    }
 
     // Rotate strike on odd additional runs (1, 3) - only if there are 2 batsmen
     if (additionalRuns % 2 === 1 && currentBatsmen.length > 1) {
@@ -329,7 +800,6 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
     }
 
     setShowWideDialog(false)
-    await fetchMatchData(true) // Skip over check to avoid race condition
   }
 
   const handleNoBallClick = () => {
@@ -344,16 +814,69 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
       ? currentBatsmen[strikerIndex === 0 ? 1 : 0]
       : null
 
-    await recordNoBall({
-      matchId,
-      batsmanId: striker.team_player_id,
-      nonStrikerId: nonStriker?.team_player_id || striker.team_player_id,
-      bowlerId: currentBowler.team_player_id,
-      additionalRuns,
-    })
+    if (useLocalScoring) {
+      const engine = new LocalMatchEngine(matchId)
+      engine.recordNoBall(
+        striker.team_player_id,
+        nonStriker?.team_player_id || striker.team_player_id,
+        currentBowler.team_player_id,
+        additionalRuns
+      )
 
-    // Clear manually selected bowler since they've now bowled
-    setManuallySelectedBowlerId(null)
+      // INSTANT refresh from localStorage
+      const localState = loadLocalMatchState(matchId)
+      if (localState) {
+        const { match: newMatch, balls: localBalls } = localState
+        const isFirstInnings = newMatch.current_innings === 1
+        const currentBalls = isFirstInnings ? newMatch.team1_balls : newMatch.team2_balls
+
+        // Check if over just completed (balls reset to 0)
+        if (previousBalls > 0 && currentBalls === 0) {
+          setStrikerIndex(prev => prev === 0 ? 1 : 0)
+          setShowBowlerDialog(true)
+          // Clear manually selected bowler when over completes
+          setManuallySelectedBowlerId(null)
+        }
+
+        setPreviousBalls(currentBalls)
+        // Attach balls to match object so commentary displays live - CREATE NEW OBJECT for React to detect change
+        const updatedMatch = { ...newMatch, balls: localBalls }
+        setMatch(updatedMatch)
+        setBattingStats(localState.battingStats)
+        setBowlingStats(localState.bowlingStats)
+
+        // Update available players for correct teams
+        if (updatedMatch.team1 && updatedMatch.team2) {
+          // Determine batting team from actual batting stats
+          const currentInningsBatsmen = localState.battingStats.filter((s: any) => s.innings_number === updatedMatch.current_innings && !s.is_out)
+          let battingTeam, bowlingTeam
+
+          if (currentInningsBatsmen.length > 0) {
+            // Find which team the current batsmen belong to
+            const batsmanTeamId = currentInningsBatsmen[0].team_player_id
+            const isTeam1Batting = updatedMatch.team1.team_players?.some((p: any) => p.id === batsmanTeamId)
+            battingTeam = isTeam1Batting ? updatedMatch.team1 : updatedMatch.team2
+            bowlingTeam = isTeam1Batting ? updatedMatch.team2 : updatedMatch.team1
+          } else {
+            // Fallback to innings-based logic
+            battingTeam = isFirstInnings ? updatedMatch.team1 : updatedMatch.team2
+            bowlingTeam = isFirstInnings ? updatedMatch.team2 : updatedMatch.team1
+          }
+
+          setAvailableBatsmen(battingTeam.team_players || [])
+          setAvailableBowlers(bowlingTeam.team_players || [])
+        }
+      }
+    } else {
+      await recordNoBall({
+        matchId,
+        batsmanId: striker.team_player_id,
+        nonStrikerId: nonStriker?.team_player_id || striker.team_player_id,
+        bowlerId: currentBowler.team_player_id,
+        additionalRuns,
+      })
+      await fetchMatchData(true)
+    }
 
     // Rotate strike on odd additional runs (1, 3) - only if there are 2 batsmen
     if (additionalRuns % 2 === 1 && currentBatsmen.length > 1) {
@@ -361,15 +884,24 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
     }
 
     setShowNoBallDialog(false)
-    await fetchMatchData(true) // Skip over check to avoid race condition
   }
 
   const handleUndo = async () => {
-    const result = await undoLastBall(matchId)
-    if (result.success) {
-      await fetchMatchData(true) // Skip over check to avoid race condition
+    if (useLocalScoring) {
+      const engine = new LocalMatchEngine(matchId)
+      const result = engine.undoLastBall()
+      if (result.success) {
+        fetchMatchData(true)
+      } else {
+        alert(result.error || 'Failed to undo')
+      }
     } else {
-      alert(result.error || 'Failed to undo')
+      const result = await undoLastBall(matchId)
+      if (result.success) {
+        await fetchMatchData(true)
+      } else {
+        alert(result.error || 'Failed to undo')
+      }
     }
   }
 
@@ -392,15 +924,16 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
   const totalBalls = currentOvers * 6 + currentBalls
   const currentRunRate = totalBalls > 0 ? ((currentScore / totalBalls) * 6).toFixed(2) : '0.00'
 
-  // Get recent balls
-  const recentBalls = match.balls
-    ?.filter((b: any) => b.innings_number === match.current_innings)
-    ?.sort((a: any, b: any) => {
+  // Get recent balls - we already have them in match.balls from state
+  const allBalls = match.balls || []
+
+  const recentBalls = allBalls
+    .filter((b: any) => b.innings_number === match.current_innings)
+    .sort((a: any, b: any) => {
       if (a.over_number !== b.over_number) return b.over_number - a.over_number
       return b.ball_number - a.ball_number
     })
-    ?.slice(0, 12)
-    ?.reverse() || []
+    .slice(0, 12)
 
   return (
     <div className="min-h-screen bg-white">
@@ -521,39 +1054,25 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
         )}
       </div>
 
-      {/* Recent Balls */}
+      {/* Commentary Feed */}
       {recentBalls.length > 0 && (
-        <div className="px-4 py-4 border-t max-sm:px-0">
-          <p className="text-sm text-gray-600 mb-2">
-            <span className="font-medium">Recent:</span>
-          </p>
-          <div className="flex gap-2 flex-wrap text-sm">
+        <div className="px-4 py-4 border-t max-sm:px-2">
+          <h3 className="text-base font-bold mb-3">Commentary</h3>
+          <div className="space-y-3 max-h-96 overflow-y-auto">
             {recentBalls.map((ball: any, idx: number) => {
-              let display = ''
-              if (ball.ball_type === 'wide') display = 'Wd'
-              else if (ball.ball_type === 'noball') display = 'Nb'
-              else if (ball.ball_type === 'wicket') display = 'W'
-              else display = ball.runs_scored.toString()
-
-              if (ball.extras && ball.runs_scored > 0) {
-                display += `+${ball.runs_scored}`
-              }
+              const overBall = `${ball.over_number}.${Number(ball.ball_number)+1}`
 
               return (
-                <span
-                  key={idx}
-                  className={`px-2 py-1 rounded ${
-                    ball.ball_type === 'wicket'
-                      ? 'bg-red-100 text-red-700'
-                      : ball.runs_scored === 4 || ball.runs_scored === 6
-                      ? 'bg-green-100 text-green-700'
-                      : ball.ball_type === 'wide' || ball.ball_type === 'noball'
-                      ? 'bg-yellow-100 text-yellow-700'
-                      : 'bg-gray-100 text-gray-700'
-                  }`}
-                >
-                  {display}
-                </span>
+                <div key={idx} className="border-b pb-3 last:border-b-0">
+                  <div className="flex items-start gap-3">
+                    <span className="font-bold text-sm text-gray-700 min-w-[40px] mt-0.5">
+                      {overBall}
+                    </span>
+                    <p className="text-sm text-gray-800 flex-1">
+                      {ball.commentary}
+                    </p>
+                  </div>
+                </div>
               )
             })}
           </div>
@@ -571,7 +1090,7 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
               className="w-full h-9 text-sm"
               disabled={!match.balls || match.balls.filter((b: any) => b.innings_number === match.current_innings).length === 0}
             >
-              ↶ Undo Last Ball
+              <Undo className="h-4 w-4 mr-2" /> Undo Last Ball
             </Button>
           </div>
 
@@ -590,9 +1109,13 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
 
           <div className="grid grid-cols-3 gap-1.5">
             <Dialog open={showWicketDialog} onOpenChange={setShowWicketDialog}>
-              <DialogTrigger asChild>
-                <Button variant="destructive" className="h-10 text-sm">Wicket</Button>
-              </DialogTrigger>
+              <Button
+                variant="destructive"
+                className="h-10 text-sm"
+                onClick={() => setShowWicketDialog(true)}
+              >
+                Wicket
+              </Button>
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>Record Wicket</DialogTitle>
@@ -752,29 +1275,18 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
             <Button
               onClick={async () => {
                 if (newBatsmanId) {
-                  // Check if this is a retired hurt player returning
-                  const retiredHurtStat = battingStats.find(
-                    (stat: any) =>
-                      stat.team_player_id === newBatsmanId &&
-                      stat.innings_number === match.current_innings &&
-                      stat.dismissal_type === 'retired_hurt'
-                  )
-
-                  if (retiredHurtStat) {
-                    // Mark them as not out anymore (they're back)
-                    await selectNewBatsman(matchId, newBatsmanId, match.current_innings)
+                  if (useLocalScoring) {
+                    const engine = new LocalMatchEngine(matchId)
+                    engine.addBatsman(newBatsmanId, match.current_innings)
+                    fetchMatchData(true)
                   } else {
-                    // Fresh batsman
                     await selectNewBatsman(matchId, newBatsmanId, match.current_innings)
+                    await fetchMatchData(true)
                   }
 
                   setShowBatsmanDialog(false)
                   setNewBatsmanId('')
-                  await fetchMatchData(true) // Skip over check to avoid race condition
 
-                  // New batsman takes strike - set striker to the new batsman's position
-                  // The new batsman will be at index 1 (since striker who got out was at strikerIndex)
-                  // Wait a bit for the data to refresh, then swap strike to new batsman
                   setTimeout(() => {
                     setStrikerIndex(1)
                   }, 100)
@@ -801,21 +1313,36 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
                 <SelectValue placeholder="Select bowler" />
               </SelectTrigger>
               <SelectContent>
-                {availableBowlers.map((player: any) => (
-                  <SelectItem key={player.id} value={player.id}>
-                    {player.player_name}
-                  </SelectItem>
-                ))}
+                {availableBowlers
+                  .filter((player: any) => {
+                    // Exclude current bowler (can't bowl consecutive overs)
+                    if (currentBowler && currentBowler.team_player_id === player.id) {
+                      return false
+                    }
+                    return true
+                  })
+                  .map((player: any) => (
+                    <SelectItem key={player.id} value={player.id}>
+                      {player.player_name}
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
             <Button
               onClick={async () => {
                 if (newBowlerId) {
-                  await changeBowler(matchId, newBowlerId, match.current_innings)
+                  if (useLocalScoring) {
+                    const engine = new LocalMatchEngine(matchId)
+                    engine.addBowler(newBowlerId, match.current_innings)
+                    fetchMatchData(true)
+                  } else {
+                    await changeBowler(matchId, newBowlerId, match.current_innings)
+                    await fetchMatchData(true)
+                  }
+
                   setManuallySelectedBowlerId(newBowlerId)
                   setShowBowlerDialog(false)
                   setNewBowlerId('')
-                  await fetchMatchData(true) // Skip over check to avoid race condition
                 }
               }}
               className="w-full"
@@ -887,22 +1414,25 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
             <Button
               onClick={async () => {
                 if (newInningsBatsman1 && newInningsBatsman2 && newInningsBowler) {
-                  // Add opening batsmen
-                  await selectNewBatsman(matchId, newInningsBatsman1, match.current_innings)
-                  await selectNewBatsman(matchId, newInningsBatsman2, match.current_innings)
+                  if (useLocalScoring) {
+                    const engine = new LocalMatchEngine(matchId)
+                    engine.addBatsman(newInningsBatsman1, match.current_innings)
+                    engine.addBatsman(newInningsBatsman2, match.current_innings)
+                    engine.addBowler(newInningsBowler, match.current_innings)
+                    fetchMatchData(true)
+                  } else {
+                    await selectNewBatsman(matchId, newInningsBatsman1, match.current_innings)
+                    await selectNewBatsman(matchId, newInningsBatsman2, match.current_innings)
+                    await changeBowler(matchId, newInningsBowler, match.current_innings)
+                    await fetchMatchData(true)
+                  }
 
-                  // Add opening bowler
-                  await changeBowler(matchId, newInningsBowler, match.current_innings)
                   setManuallySelectedBowlerId(newInningsBowler)
-
-                  // Reset and close
                   setShowInningsSetup(false)
                   setNewInningsBatsman1('')
                   setNewInningsBatsman2('')
                   setNewInningsBowler('')
                   setStrikerIndex(0)
-
-                  await fetchMatchData(true) // Skip over check to avoid race condition
                 }
               }}
               className="w-full"
@@ -913,6 +1443,7 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
           </div>
         </DialogContent>
       </Dialog>
+
     </div>
   )
 }
