@@ -66,15 +66,18 @@ export const authOptions: NextAuthOptions = {
     },
     async session({ session, token }) {
       if (session.user && token.sub) {
-        // Get user ID from Supabase
+        // Get user data from Supabase (including updated name)
         const { data: user } = await supabase
           .from('users')
-          .select('id')
+          .select('id, name, avatar_url')
           .eq('email', session.user.email)
           .single()
 
         if (user) {
           session.user.id = user.id
+          // Update session with latest name and avatar from database
+          session.user.name = user.name
+          session.user.image = user.avatar_url
         }
       }
       return session

@@ -205,7 +205,9 @@ export function MatchScorecard({ match, battingStats, bowlingStats, balls = [] }
                     .filter((b: any) => b.innings_number === 1)
                     .sort((a: any, b: any) => {
                       if (a.over_number !== b.over_number) return b.over_number - a.over_number
-                      return b.ball_number - a.ball_number
+                      if (a.ball_number !== b.ball_number) return b.ball_number - a.ball_number
+                      // For same ball number (no-ball/wide + legal ball), sort by creation time descending
+                      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
                     })
                     .map((ball: any, idx: number) => {
                       const overBall = `${ball.over_number}.${Number(ball.ball_number) + 1}`
@@ -237,7 +239,9 @@ export function MatchScorecard({ match, battingStats, bowlingStats, balls = [] }
                     .filter((b: any) => b.innings_number === 2)
                     .sort((a: any, b: any) => {
                       if (a.over_number !== b.over_number) return b.over_number - a.over_number
-                      return b.ball_number - a.ball_number
+                      if (a.ball_number !== b.ball_number) return b.ball_number - a.ball_number
+                      // For same ball number (no-ball/wide + legal ball), sort by creation time descending
+                      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
                     })
                     .map((ball: any, idx: number) => {
                       const overBall = `${ball.over_number}.${Number(ball.ball_number) + 1}`

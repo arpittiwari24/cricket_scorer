@@ -241,9 +241,26 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
             battingTeam = isTeam1Batting ? matchData.team1 : matchData.team2
             bowlingTeam = isTeam1Batting ? matchData.team2 : matchData.team1
           } else {
-            // Fallback to innings-based logic
-            battingTeam = isFirstInnings ? matchData.team1 : matchData.team2
-            bowlingTeam = isFirstInnings ? matchData.team2 : matchData.team1
+            // Fallback: determine from first innings batting stats
+            if (matchData.current_innings === 2) {
+              // Second innings - find who batted in first innings and swap
+              const innings1Batsmen = localBattingStats.filter((s: any) => s.innings_number === 1)
+              if (innings1Batsmen.length > 0) {
+                const innings1BatsmanId = innings1Batsmen[0].team_player_id
+                const isTeam1BattedFirst = matchData.team1.team_players?.some((p: any) => p.id === innings1BatsmanId)
+                // Swap teams for second innings
+                battingTeam = isTeam1BattedFirst ? matchData.team2 : matchData.team1
+                bowlingTeam = isTeam1BattedFirst ? matchData.team1 : matchData.team2
+              } else {
+                // No stats available, default to team2 bats second
+                battingTeam = matchData.team2
+                bowlingTeam = matchData.team1
+              }
+            } else {
+              // First innings - default to team1
+              battingTeam = matchData.team1
+              bowlingTeam = matchData.team2
+            }
           }
 
           setAvailableBatsmen(battingTeam.team_players || [])
@@ -342,10 +359,26 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
             battingTeam = isTeam1Batting ? matchData.team1 : matchData.team2
             bowlingTeam = isTeam1Batting ? matchData.team2 : matchData.team1
           } else {
-            // Fallback to innings-based logic
-            const isFirstInnings = matchData.current_innings === 1
-            battingTeam = isFirstInnings ? matchData.team1 : matchData.team2
-            bowlingTeam = isFirstInnings ? matchData.team2 : matchData.team1
+            // Fallback: determine from first innings batting stats
+            if (matchData.current_innings === 2) {
+              // Second innings - find who batted in first innings and swap
+              const innings1Batsmen = enrichedBattingStats.filter((s: any) => s.innings_number === 1)
+              if (innings1Batsmen.length > 0) {
+                const innings1BatsmanId = innings1Batsmen[0].team_player_id
+                const isTeam1BattedFirst = matchData.team1.team_players?.some((p: any) => p.id === innings1BatsmanId)
+                // Swap teams for second innings
+                battingTeam = isTeam1BattedFirst ? matchData.team2 : matchData.team1
+                bowlingTeam = isTeam1BattedFirst ? matchData.team1 : matchData.team2
+              } else {
+                // No stats available, default to team2 bats second
+                battingTeam = matchData.team2
+                bowlingTeam = matchData.team1
+              }
+            } else {
+              // First innings - default to team1
+              battingTeam = matchData.team1
+              bowlingTeam = matchData.team2
+            }
           }
 
           setAvailableBatsmen(battingTeam.team_players || [])
@@ -575,9 +608,26 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
             battingTeam = isTeam1Batting ? updatedMatch.team1 : updatedMatch.team2
             bowlingTeam = isTeam1Batting ? updatedMatch.team2 : updatedMatch.team1
           } else {
-            // Fallback to innings-based logic
-            battingTeam = isFirstInnings ? updatedMatch.team1 : updatedMatch.team2
-            bowlingTeam = isFirstInnings ? updatedMatch.team2 : updatedMatch.team1
+            // Fallback: determine from first innings batting stats
+            if (updatedMatch.current_innings === 2) {
+              // Second innings - find who batted in first innings and swap
+              const innings1Batsmen = localState.battingStats.filter((s: any) => s.innings_number === 1)
+              if (innings1Batsmen.length > 0) {
+                const innings1BatsmanId = innings1Batsmen[0].team_player_id
+                const isTeam1BattedFirst = updatedMatch.team1.team_players?.some((p: any) => p.id === innings1BatsmanId)
+                // Swap teams for second innings
+                battingTeam = isTeam1BattedFirst ? updatedMatch.team2 : updatedMatch.team1
+                bowlingTeam = isTeam1BattedFirst ? updatedMatch.team1 : updatedMatch.team2
+              } else {
+                // No stats available, default to team2 bats second
+                battingTeam = updatedMatch.team2
+                bowlingTeam = updatedMatch.team1
+              }
+            } else {
+              // First innings - default to team1
+              battingTeam = updatedMatch.team1
+              bowlingTeam = updatedMatch.team2
+            }
           }
 
           setAvailableBatsmen(battingTeam.team_players || [])
@@ -670,9 +720,26 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
             battingTeam = isTeam1Batting ? updatedMatch.team1 : updatedMatch.team2
             bowlingTeam = isTeam1Batting ? updatedMatch.team2 : updatedMatch.team1
           } else {
-            // Fallback to innings-based logic
-            battingTeam = isFirstInnings ? updatedMatch.team1 : updatedMatch.team2
-            bowlingTeam = isFirstInnings ? updatedMatch.team2 : updatedMatch.team1
+            // Fallback: determine from first innings batting stats
+            if (updatedMatch.current_innings === 2) {
+              // Second innings - find who batted in first innings and swap
+              const innings1Batsmen = localState.battingStats.filter((s: any) => s.innings_number === 1)
+              if (innings1Batsmen.length > 0) {
+                const innings1BatsmanId = innings1Batsmen[0].team_player_id
+                const isTeam1BattedFirst = updatedMatch.team1.team_players?.some((p: any) => p.id === innings1BatsmanId)
+                // Swap teams for second innings
+                battingTeam = isTeam1BattedFirst ? updatedMatch.team2 : updatedMatch.team1
+                bowlingTeam = isTeam1BattedFirst ? updatedMatch.team1 : updatedMatch.team2
+              } else {
+                // No stats available, default to team2 bats second
+                battingTeam = updatedMatch.team2
+                bowlingTeam = updatedMatch.team1
+              }
+            } else {
+              // First innings - default to team1
+              battingTeam = updatedMatch.team1
+              bowlingTeam = updatedMatch.team2
+            }
           }
 
           setAvailableBatsmen(battingTeam.team_players || [])
@@ -761,9 +828,26 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
             battingTeam = isTeam1Batting ? updatedMatch.team1 : updatedMatch.team2
             bowlingTeam = isTeam1Batting ? updatedMatch.team2 : updatedMatch.team1
           } else {
-            const isFirstInnings = updatedMatch.current_innings === 1
-            battingTeam = isFirstInnings ? updatedMatch.team1 : updatedMatch.team2
-            bowlingTeam = isFirstInnings ? updatedMatch.team2 : updatedMatch.team1
+            // Fallback: determine from first innings batting stats
+            if (updatedMatch.current_innings === 2) {
+              // Second innings - find who batted in first innings and swap
+              const innings1Batsmen = localState.battingStats.filter((s: any) => s.innings_number === 1)
+              if (innings1Batsmen.length > 0) {
+                const innings1BatsmanId = innings1Batsmen[0].team_player_id
+                const isTeam1BattedFirst = updatedMatch.team1.team_players?.some((p: any) => p.id === innings1BatsmanId)
+                // Swap teams for second innings
+                battingTeam = isTeam1BattedFirst ? updatedMatch.team2 : updatedMatch.team1
+                bowlingTeam = isTeam1BattedFirst ? updatedMatch.team1 : updatedMatch.team2
+              } else {
+                // No stats available, default to team2 bats second
+                battingTeam = updatedMatch.team2
+                bowlingTeam = updatedMatch.team1
+              }
+            } else {
+              // First innings - default to team1
+              battingTeam = updatedMatch.team1
+              bowlingTeam = updatedMatch.team2
+            }
           }
 
           setAvailableBatsmen(battingTeam.team_players || [])
@@ -860,9 +944,26 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
             battingTeam = isTeam1Batting ? updatedMatch.team1 : updatedMatch.team2
             bowlingTeam = isTeam1Batting ? updatedMatch.team2 : updatedMatch.team1
           } else {
-            // Fallback to innings-based logic
-            battingTeam = isFirstInnings ? updatedMatch.team1 : updatedMatch.team2
-            bowlingTeam = isFirstInnings ? updatedMatch.team2 : updatedMatch.team1
+            // Fallback: determine from first innings batting stats
+            if (updatedMatch.current_innings === 2) {
+              // Second innings - find who batted in first innings and swap
+              const innings1Batsmen = localState.battingStats.filter((s: any) => s.innings_number === 1)
+              if (innings1Batsmen.length > 0) {
+                const innings1BatsmanId = innings1Batsmen[0].team_player_id
+                const isTeam1BattedFirst = updatedMatch.team1.team_players?.some((p: any) => p.id === innings1BatsmanId)
+                // Swap teams for second innings
+                battingTeam = isTeam1BattedFirst ? updatedMatch.team2 : updatedMatch.team1
+                bowlingTeam = isTeam1BattedFirst ? updatedMatch.team1 : updatedMatch.team2
+              } else {
+                // No stats available, default to team2 bats second
+                battingTeam = updatedMatch.team2
+                bowlingTeam = updatedMatch.team1
+              }
+            } else {
+              // First innings - default to team1
+              battingTeam = updatedMatch.team1
+              bowlingTeam = updatedMatch.team2
+            }
           }
 
           setAvailableBatsmen(battingTeam.team_players || [])
@@ -944,9 +1045,26 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
             battingTeam = isTeam1Batting ? updatedMatch.team1 : updatedMatch.team2
             bowlingTeam = isTeam1Batting ? updatedMatch.team2 : updatedMatch.team1
           } else {
-            // Fallback to innings-based logic
-            battingTeam = isFirstInnings ? updatedMatch.team1 : updatedMatch.team2
-            bowlingTeam = isFirstInnings ? updatedMatch.team2 : updatedMatch.team1
+            // Fallback: determine from first innings batting stats
+            if (updatedMatch.current_innings === 2) {
+              // Second innings - find who batted in first innings and swap
+              const innings1Batsmen = localState.battingStats.filter((s: any) => s.innings_number === 1)
+              if (innings1Batsmen.length > 0) {
+                const innings1BatsmanId = innings1Batsmen[0].team_player_id
+                const isTeam1BattedFirst = updatedMatch.team1.team_players?.some((p: any) => p.id === innings1BatsmanId)
+                // Swap teams for second innings
+                battingTeam = isTeam1BattedFirst ? updatedMatch.team2 : updatedMatch.team1
+                bowlingTeam = isTeam1BattedFirst ? updatedMatch.team1 : updatedMatch.team2
+              } else {
+                // No stats available, default to team2 bats second
+                battingTeam = updatedMatch.team2
+                bowlingTeam = updatedMatch.team1
+              }
+            } else {
+              // First innings - default to team1
+              battingTeam = updatedMatch.team1
+              bowlingTeam = updatedMatch.team2
+            }
           }
 
           setAvailableBatsmen(battingTeam.team_players || [])
@@ -1003,8 +1121,38 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
   const currentOvers = isFirstInnings ? match.team1_overs : match.team2_overs
   const currentBalls = isFirstInnings ? match.team1_balls : match.team2_balls
 
-  const battingTeam = isFirstInnings ? match.team1 : match.team2
-  const bowlingTeam = isFirstInnings ? match.team2 : match.team1
+  // Determine batting team from actual batting stats
+  const currentInningsBatsmen = battingStats.filter((s: any) => s.innings_number === match.current_innings && !s.is_out)
+  let battingTeam, bowlingTeam
+
+  if (currentInningsBatsmen.length > 0) {
+    // Find which team the current batsmen belong to
+    const batsmanTeamId = currentInningsBatsmen[0].team_player_id
+    const isTeam1Batting = match.team1.team_players?.some((p: any) => p.id === batsmanTeamId)
+    battingTeam = isTeam1Batting ? match.team1 : match.team2
+    bowlingTeam = isTeam1Batting ? match.team2 : match.team1
+  } else {
+    // Fallback: determine from first innings batting stats
+    if (match.current_innings === 2) {
+      // Second innings - find who batted in first innings and swap
+      const innings1Batsmen = battingStats.filter((s: any) => s.innings_number === 1)
+      if (innings1Batsmen.length > 0) {
+        const innings1BatsmanId = innings1Batsmen[0].team_player_id
+        const isTeam1BattedFirst = match.team1.team_players?.some((p: any) => p.id === innings1BatsmanId)
+        // Swap teams for second innings
+        battingTeam = isTeam1BattedFirst ? match.team2 : match.team1
+        bowlingTeam = isTeam1BattedFirst ? match.team1 : match.team2
+      } else {
+        // No stats available, default to team2 bats second
+        battingTeam = match.team2
+        bowlingTeam = match.team1
+      }
+    } else {
+      // First innings - default to team1
+      battingTeam = match.team1
+      bowlingTeam = match.team2
+    }
+  }
 
   // Calculate current run rate
   const totalBalls = currentOvers * 6 + currentBalls
@@ -1017,7 +1165,9 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
     .filter((b: any) => b.innings_number === match.current_innings)
     .sort((a: any, b: any) => {
       if (a.over_number !== b.over_number) return b.over_number - a.over_number
-      return b.ball_number - a.ball_number
+      if (a.ball_number !== b.ball_number) return b.ball_number - a.ball_number
+      // For same ball number (no-ball/wide + legal ball), sort by creation time descending
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     })
     .slice(0, 12)
 

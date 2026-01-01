@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth/nextauth'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
+import { ProfileHeader } from '@/components/profile/ProfileHeader'
 
 export default async function ProfilePage() {
   const session = await getServerSession(authOptions)
@@ -20,6 +21,9 @@ export default async function ProfilePage() {
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-50 via-white to-slate-50">
       <div className="max-w-6xl mx-auto space-y-4 md:space-y-8 px-3 md:px-4 py-4 md:py-6">
+
+        {/* Profile Header */}
+        <ProfileHeader user={session.user} />
 
         {stats && (
           <>
