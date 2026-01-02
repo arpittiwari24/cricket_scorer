@@ -152,7 +152,8 @@ export function calculateMatchResult(
   team1Wickets: number,
   team2Score: number,
   team2Wickets: number,
-  currentInnings: number
+  currentInnings: number,
+  team2TotalPlayers?: number
 ): {
   winnerTeam: 1 | 2 | null
   resultText: string
@@ -171,7 +172,9 @@ export function calculateMatchResult(
       resultText: `${team1Name} won by ${margin} runs`,
     }
   } else {
-    const wicketsRemaining = 10 - team2Wickets
+    // Use actual team size if provided, otherwise default to 10 for backward compatibility
+    const totalPlayers = team2TotalPlayers || 10
+    const wicketsRemaining = totalPlayers - team2Wickets
     return {
       winnerTeam: 2,
       resultText: `${team2Name} won by ${wicketsRemaining} wickets`,

@@ -73,12 +73,17 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
     const currentWickets = isFirstInnings ? localMatch.team1_wickets : localMatch.team2_wickets
     const currentScore = isFirstInnings ? localMatch.team1_score : localMatch.team2_score
 
+    // Get the batting team's total players for all-out check
+    const battingTeam = isFirstInnings ? localMatch.team1 : localMatch.team2
+    const totalBattingPlayers = battingTeam?.team_players?.length || 0
+
     console.log('Match completion check:', {
       innings: localMatch.current_innings,
       isFirstInnings,
       currentOvers,
       totalOvers: localMatch.total_overs,
       currentWickets,
+      totalBattingPlayers,
       currentScore,
       team1_score: localMatch.team1_score,
       team2_score: localMatch.team2_score
@@ -87,8 +92,8 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
     let isMatchComplete = false
     let resultText = ''
 
-    // Check if innings complete
-    if (currentOvers >= localMatch.total_overs || currentWickets >= 10) {
+    // Check if innings complete (all overs bowled OR all batsmen out)
+    if (currentOvers >= localMatch.total_overs || currentWickets >= totalBattingPlayers) {
       console.log('Innings complete detected!')
       if (localMatch.current_innings === 1) {
         console.log('First innings complete, transitioning to innings 2')
@@ -122,8 +127,13 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
         const battingFirstTeam = team1BattedInnings1 ? team1Name : team2Name
         const battingSecondTeam = team1BattedInnings1 ? team2Name : team1Name
 
+        // Get the total players of the team that batted second for wickets calculation
+        const battingSecondTeamData = team1BattedInnings1 ? localMatch.team2 : localMatch.team1
+        const totalBattingSecondPlayers = battingSecondTeamData?.team_players?.length || 0
+
         if (team2Score > team1Score) {
-          resultText = `${battingSecondTeam} won by ${10 - team2Wickets} wickets`
+          const wicketsRemaining = totalBattingSecondPlayers - team2Wickets
+          resultText = `${battingSecondTeam} won by ${wicketsRemaining} wickets`
         } else if (team1Score > team2Score) {
           resultText = `${battingFirstTeam} won by ${team1Score - team2Score} runs`
         } else {
@@ -148,7 +158,10 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
         }
 
         const chasingTeam = team2BattingInInnings2 ? localMatch.team2?.name : localMatch.team1?.name
-        resultText = `${chasingTeam} won by ${10 - currentWickets} wickets`
+        const chasingTeamData = team2BattingInInnings2 ? localMatch.team2 : localMatch.team1
+        const totalChasingPlayers = chasingTeamData?.team_players?.length || 0
+        const wicketsRemaining = totalChasingPlayers - currentWickets
+        resultText = `${chasingTeam} won by ${wicketsRemaining} wickets`
       }
     }
 
@@ -574,10 +587,14 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
         const currentOvers = isFirstInnings ? newMatch.team1_overs : newMatch.team2_overs
         const currentWickets = isFirstInnings ? newMatch.team1_wickets : newMatch.team2_wickets
 
+        // Get total players in batting team for all-out check
+        const battingTeamForCheck = isFirstInnings ? newMatch.team1 : newMatch.team2
+        const totalBattingPlayersForCheck = battingTeamForCheck?.team_players?.length || 0
+
         console.log('Over check - previousBalls:', previousBalls, 'currentBalls:', currentBalls)
 
         // Check if innings complete - if so, don't show bowler dialog
-        const isInningsComplete = currentOvers >= newMatch.total_overs || currentWickets >= 10
+        const isInningsComplete = currentOvers >= newMatch.total_overs || currentWickets >= totalBattingPlayersForCheck
 
         // Check if over just completed (balls reset to 0) AND innings not complete
         if (previousBalls > 0 && currentBalls === 0 && !isInningsComplete) {
@@ -689,8 +706,12 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
         const currentOvers = isFirstInnings ? newMatch.team1_overs : newMatch.team2_overs
         const currentWickets = isFirstInnings ? newMatch.team1_wickets : newMatch.team2_wickets
 
+        // Get total players in batting team for all-out check
+        const battingTeamForWicketCheck = isFirstInnings ? newMatch.team1 : newMatch.team2
+        const totalBattingPlayersForWicketCheck = battingTeamForWicketCheck?.team_players?.length || 0
+
         // Check if innings complete - if so, don't show bowler dialog
-        const isInningsComplete = currentOvers >= newMatch.total_overs || currentWickets >= 10
+        const isInningsComplete = currentOvers >= newMatch.total_overs || currentWickets >= totalBattingPlayersForWicketCheck
 
         // Check if over just completed (balls reset to 0) AND innings not complete
         if (previousBalls > 0 && currentBalls === 0 && !isInningsComplete) {

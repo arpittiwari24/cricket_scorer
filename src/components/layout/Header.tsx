@@ -71,6 +71,12 @@ export function Header() {
                 >
                   Live
                 </Link>
+                <Link
+                  href="/leaderboard"
+                  className="text-sm font-medium text-black hover:underline"
+                >
+                  Leaderboard
+                </Link>
               </nav>
             </div>
           </div>
@@ -129,6 +135,13 @@ export function Header() {
               onClick={() => setUserMenuOpen(false)}
             >
               Profile
+            </Link>
+            <Link
+              href="/leaderboard"
+              className="text-base font-medium text-black py-3 px-4 hover:bg-gray-50 border-b"
+              onClick={() => setUserMenuOpen(false)}
+            >
+              Leaderboard
             </Link>
             <button
               className="text-base font-medium text-red-600 py-3 px-4 hover:bg-gray-50 text-left"

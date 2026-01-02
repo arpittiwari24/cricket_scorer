@@ -410,9 +410,9 @@ export class MatchEngine {
 
         if (matchData) {
           const battingTeam = isFirstInnings ? matchData.team1 : matchData.team2
-          const totalPlayers = (battingTeam as any)?.team_players?.length || 11
+          const totalPlayers = (battingTeam as any)?.team_players?.length || 0
 
-          // Get count of batsmen who have batted (excluding retired hurt)
+          // Get count of actual wickets (excluding retired hurt)
           const { data: stats } = await this.supabase
             .from('batting_stats')
             .select('*')
@@ -424,17 +424,8 @@ export class MatchEngine {
             (s) => s.is_out && s.dismissal_type !== 'retired_hurt'
           ).length || 0
 
-          // Count retired hurt (they can return)
-          const retiredHurtCount = stats?.filter(
-            (s) => s.is_out && s.dismissal_type === 'retired_hurt'
-          ).length || 0
-
-          // Count batsmen currently batting
-          const currentlyBatting = stats?.filter((s) => !s.is_out).length || 0
-
-          // All out if: actual wickets + currently batting >= total players
-          // (retired hurt players can still return, so they don't count towards all out)
-          if (actualWickets + currentlyBatting >= totalPlayers) {
+          // All out when all players are out (regardless of team size)
+          if (actualWickets >= totalPlayers) {
             await this.handleInningsEnd('all_out')
           }
         }
@@ -601,7 +592,7 @@ export class MatchEngine {
   private async completeMatch() {
     const { data: match } = await this.supabase
       .from('matches')
-      .select('*, team1:team1_id(name), team2:team2_id(name)')
+      .select('*, team1:team1_id(name), team2:team2_id(name, team_players(*))')
       .eq('id', this.matchId)
       .single()
 
@@ -609,6 +600,7 @@ export class MatchEngine {
 
     const team1Name = (match.team1 as any)?.name || 'Team 1'
     const team2Name = (match.team2 as any)?.name || 'Team 2'
+    const team2TotalPlayers = (match.team2 as any)?.team_players?.length || 10
 
     const { winnerTeam, resultText } = calculateMatchResult(
       team1Name,
@@ -617,7 +609,8 @@ export class MatchEngine {
       match.team1_wickets,
       match.team2_score,
       match.team2_wickets,
-      match.current_innings
+      match.current_innings,
+      team2TotalPlayers
     )
 
     await this.supabase

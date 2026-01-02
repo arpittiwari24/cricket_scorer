@@ -442,10 +442,56 @@ export class LocalMatchEngine {
           match.team2_balls = 0
         }
       }
+
+      // Check for innings end (all out)
+      const battingTeam = isFirstInnings ? match.team1 : match.team2
+      const totalPlayers = battingTeam?.team_players?.length || 0
+
+      const actualWickets = battingStats.filter(
+        (s: any) =>
+          s.innings_number === match.current_innings &&
+          s.is_out &&
+          s.dismissal_type !== 'retired_hurt'
+      ).length
+
+      // All out when all players are out (regardless of team size)
+      if (actualWickets >= totalPlayers) {
+        this.handleInningsEnd(match, battingStats, bowlingStats, balls)
+      }
     }
 
     this.saveState({ match, battingStats, bowlingStats, balls })
     return { success: true }
+  }
+
+  /**
+   * Handle innings end - transition to next innings or complete match
+   */
+  private handleInningsEnd(match: any, battingStats: any[], bowlingStats: any[], balls: any[]) {
+    if (match.current_innings === 1) {
+      // First innings complete, start second innings
+      const target = match.team1_score + 1
+      match.current_innings = 2
+      match.target = target
+      match.batting_team_id = match.team2_id
+    } else {
+      // Second innings complete, mark match as completed
+      match.status = 'completed'
+
+      // Determine winner
+      if (match.team2_score > match.team1_score) {
+        match.winner_team_id = match.team2_id
+        const totalTeam2Players = match.team2?.team_players?.length || 0
+        const wicketsLeft = totalTeam2Players - match.team2_wickets
+        match.result = `${match.team2?.name || 'Team 2'} won by ${wicketsLeft} wickets`
+      } else if (match.team1_score > match.team2_score) {
+        match.winner_team_id = match.team1_id
+        const runsDiff = match.team1_score - match.team2_score
+        match.result = `${match.team1?.name || 'Team 1'} won by ${runsDiff} runs`
+      } else {
+        match.result = 'Match tied'
+      }
+    }
   }
 
   /**
