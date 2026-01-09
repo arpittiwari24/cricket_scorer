@@ -67,6 +67,9 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
     teamName: string
   } | null>(null)
 
+  // Flag to handle over completion after batsman selection
+  const [overCompletedDuringWicket, setOverCompletedDuringWicket] = useState(false)
+
   // Check if match is complete and auto-sync
   const checkAndCompleteMatch = async () => {
     console.log('=== checkAndCompleteMatch CALLED ===')
@@ -791,9 +794,12 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
         // Check if over just completed (balls reset to 0) AND innings not complete
         if (previousBalls > 0 && currentBalls === 0 && !isInningsComplete) {
           setStrikerIndex(prev => prev === 0 ? 1 : 0)
-          setShowBowlerDialog(true)
+          // DON'T show bowler dialog immediately - set flag to show it after batsman is selected
+          setOverCompletedDuringWicket(true)
           // Clear manually selected bowler when over completes
           setManuallySelectedBowlerId(null)
+        } else {
+          setOverCompletedDuringWicket(false)
         }
 
         setPreviousBalls(currentBalls)
@@ -1689,9 +1695,18 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
                   setShowBatsmanDialog(false)
                   setNewBatsmanId('')
 
-                  setTimeout(() => {
-                    setStrikerIndex(1)
-                  }, 100)
+                  // Check if over was completed during the wicket
+                  if (overCompletedDuringWicket) {
+                    // Show bowler dialog after a short delay
+                    setTimeout(() => {
+                      setShowBowlerDialog(true)
+                      setOverCompletedDuringWicket(false)
+                    }, 100)
+                  } else {
+                    setTimeout(() => {
+                      setStrikerIndex(1)
+                    }, 100)
+                  }
                 }
               }}
               className="w-full"
