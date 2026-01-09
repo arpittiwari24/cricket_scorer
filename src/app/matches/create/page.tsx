@@ -7,17 +7,16 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { createTeam, addPlayerToTeam, searchUsers } from '@/actions/teams'
 import { createMatch, setupMatch } from '@/actions/matches'
 import { useAuth } from '@/hooks/useAuth'
 
-interface Player {
-  id: string
+interface PlayerDraft {
   name: string
-  isGuest: boolean
   userId?: string
+  isGuest: boolean
   avatarIndex: number
-  isCaptain: boolean
 }
 
 export default function CreateMatchPage() {
@@ -32,157 +31,179 @@ export default function CreateMatchPage() {
     }
   }, [authLoading, isAuthenticated, router])
 
-  // Match details
+  // Step 1: Match details + Team names
   const [overs, setOvers] = useState('20')
   const [venue, setVenue] = useState('')
-
-  // Team 1
   const [team1Name, setTeam1Name] = useState('')
-  const [team1Players, setTeam1Players] = useState<Player[]>([])
-  const [team1PlayerName, setTeam1PlayerName] = useState('')
-  const [team1SearchQuery, setTeam1SearchQuery] = useState('')
-  const [team1SearchResults, setTeam1SearchResults] = useState<any[]>([])
-
-  // Team 2
   const [team2Name, setTeam2Name] = useState('')
-  const [team2Players, setTeam2Players] = useState<Player[]>([])
-  const [team2PlayerName, setTeam2PlayerName] = useState('')
-  const [team2SearchQuery, setTeam2SearchQuery] = useState('')
-  const [team2SearchResults, setTeam2SearchResults] = useState<any[]>([])
 
-  // Match setup
+  // Step 2: Toss
   const [battingFirst, setBattingFirst] = useState<'team1' | 'team2' | ''>('')
-  const [batsman1, setBatsman1] = useState('')
-  const [batsman2, setBatsman2] = useState('')
-  const [bowler, setBowler] = useState('')
 
-  const handleSearchTeam1 = async (query: string) => {
-    setTeam1SearchQuery(query)
+  // Step 3: Opening players
+  const [openingPlayers, setOpeningPlayers] = useState({
+    batsman1: null as PlayerDraft | null,
+    batsman2: null as PlayerDraft | null,
+    bowler: null as PlayerDraft | null,
+  })
+
+  // Search state for each player position
+  const [batsman1SearchQuery, setBatsman1SearchQuery] = useState('')
+  const [batsman1SearchResults, setBatsman1SearchResults] = useState<any[]>([])
+  const [batsman1GuestName, setBatsman1GuestName] = useState('')
+
+  const [batsman2SearchQuery, setBatsman2SearchQuery] = useState('')
+  const [batsman2SearchResults, setBatsman2SearchResults] = useState<any[]>([])
+  const [batsman2GuestName, setBatsman2GuestName] = useState('')
+
+  const [bowlerSearchQuery, setBowlerSearchQuery] = useState('')
+  const [bowlerSearchResults, setBowlerSearchResults] = useState<any[]>([])
+  const [bowlerGuestName, setBowlerGuestName] = useState('')
+
+  // Search handlers
+  const handleSearchBatsman1 = async (query: string) => {
+    setBatsman1SearchQuery(query)
     if (query.length < 2) {
-      setTeam1SearchResults([])
+      setBatsman1SearchResults([])
       return
     }
     const result = await searchUsers(query)
     if (result.success && result.data) {
-      setTeam1SearchResults(result.data)
+      setBatsman1SearchResults(result.data)
     }
   }
 
-  const handleSearchTeam2 = async (query: string) => {
-    setTeam2SearchQuery(query)
+  const handleSearchBatsman2 = async (query: string) => {
+    setBatsman2SearchQuery(query)
     if (query.length < 2) {
-      setTeam2SearchResults([])
+      setBatsman2SearchResults([])
       return
     }
     const result = await searchUsers(query)
     if (result.success && result.data) {
-      setTeam2SearchResults(result.data)
+      setBatsman2SearchResults(result.data)
     }
   }
 
-  const addRegisteredPlayerTeam1 = (searchUser: any) => {
-    if (team1Players.find(p => p.userId === searchUser.id)) return
-    setTeam1Players([
-      ...team1Players,
-      {
-        id: Math.random().toString(),
-        name: searchUser.name,
-        isGuest: false,
-        userId: searchUser.id,
-        avatarIndex: 0,
-        isCaptain: false,
-      },
-    ])
-    setTeam1SearchQuery('')
-    setTeam1SearchResults([])
+  const handleSearchBowler = async (query: string) => {
+    setBowlerSearchQuery(query)
+    if (query.length < 2) {
+      setBowlerSearchResults([])
+      return
+    }
+    const result = await searchUsers(query)
+    if (result.success && result.data) {
+      setBowlerSearchResults(result.data)
+    }
   }
 
-  const addGuestPlayerTeam1 = () => {
-    if (!team1PlayerName.trim()) return
-    setTeam1Players([
-      ...team1Players,
-      {
-        id: Math.random().toString(),
-        name: team1PlayerName,
+  // Add player handlers
+  const addRegisteredBatsman1 = (user: any) => {
+    setOpeningPlayers({
+      ...openingPlayers,
+      batsman1: {
+        name: user.name,
+        userId: user.id,
+        isGuest: false,
+        avatarIndex: 0,
+      },
+    })
+    setBatsman1SearchQuery('')
+    setBatsman1SearchResults([])
+  }
+
+  const addGuestBatsman1 = () => {
+    if (!batsman1GuestName.trim()) return
+    setOpeningPlayers({
+      ...openingPlayers,
+      batsman1: {
+        name: batsman1GuestName,
         isGuest: true,
         avatarIndex: Math.floor(Math.random() * 16),
-        isCaptain: false,
       },
-    ])
-    setTeam1PlayerName('')
+    })
+    setBatsman1GuestName('')
   }
 
-  const removePlayerTeam1 = (id: string) => {
-    setTeam1Players(team1Players.filter((p) => p.id !== id))
-  }
-
-  const toggleCaptainTeam1 = (id: string) => {
-    setTeam1Players(
-      team1Players.map((p) =>
-        p.id === id ? { ...p, isCaptain: !p.isCaptain } : { ...p, isCaptain: false }
-      )
-    )
-  }
-
-  const addRegisteredPlayerTeam2 = (searchUser: any) => {
-    if (team2Players.find(p => p.userId === searchUser.id)) return
-    setTeam2Players([
-      ...team2Players,
-      {
-        id: Math.random().toString(),
-        name: searchUser.name,
+  const addRegisteredBatsman2 = (user: any) => {
+    setOpeningPlayers({
+      ...openingPlayers,
+      batsman2: {
+        name: user.name,
+        userId: user.id,
         isGuest: false,
-        userId: searchUser.id,
         avatarIndex: 0,
-        isCaptain: false,
       },
-    ])
-    setTeam2SearchQuery('')
-    setTeam2SearchResults([])
+    })
+    setBatsman2SearchQuery('')
+    setBatsman2SearchResults([])
   }
 
-  const addGuestPlayerTeam2 = () => {
-    if (!team2PlayerName.trim()) return
-    setTeam2Players([
-      ...team2Players,
-      {
-        id: Math.random().toString(),
-        name: team2PlayerName,
+  const addGuestBatsman2 = () => {
+    if (!batsman2GuestName.trim()) return
+    setOpeningPlayers({
+      ...openingPlayers,
+      batsman2: {
+        name: batsman2GuestName,
         isGuest: true,
         avatarIndex: Math.floor(Math.random() * 16),
-        isCaptain: false,
       },
-    ])
-    setTeam2PlayerName('')
+    })
+    setBatsman2GuestName('')
   }
 
-  const removePlayerTeam2 = (id: string) => {
-    setTeam2Players(team2Players.filter((p) => p.id !== id))
+  const addRegisteredBowler = (user: any) => {
+    setOpeningPlayers({
+      ...openingPlayers,
+      bowler: {
+        name: user.name,
+        userId: user.id,
+        isGuest: false,
+        avatarIndex: 0,
+      },
+    })
+    setBowlerSearchQuery('')
+    setBowlerSearchResults([])
   }
 
-  const toggleCaptainTeam2 = (id: string) => {
-    setTeam2Players(
-      team2Players.map((p) =>
-        p.id === id ? { ...p, isCaptain: !p.isCaptain } : { ...p, isCaptain: false }
-      )
-    )
+  const addGuestBowler = () => {
+    if (!bowlerGuestName.trim()) return
+    setOpeningPlayers({
+      ...openingPlayers,
+      bowler: {
+        name: bowlerGuestName,
+        isGuest: true,
+        avatarIndex: Math.floor(Math.random() * 16),
+      },
+    })
+    setBowlerGuestName('')
   }
 
   const handleCreateMatch = async () => {
-    if (!user?.id || !team1Name || !team2Name || team1Players.length === 0 || team2Players.length === 0) {
-      alert('Please complete all teams')
+    if (!user?.id) {
+      alert('You must be logged in to create a match')
       return
     }
 
-    if (!battingFirst || !batsman1 || !batsman2 || !bowler) {
-      alert('Please select which team bats first, opening batsmen and bowler')
+    if (!team1Name || !team2Name) {
+      alert('Please enter both team names')
+      return
+    }
+
+    if (!openingPlayers.batsman1 || !openingPlayers.batsman2 || !openingPlayers.bowler) {
+      alert('Please add all opening players')
+      return
+    }
+
+    if (openingPlayers.batsman1.name === openingPlayers.batsman2.name) {
+      alert('Opening batsmen must be different players')
       return
     }
 
     setIsLoading(true)
 
     try {
-      // Create Team 1
+      // 1. Create both teams (names only)
       const team1Result = await createTeam({ name: team1Name, createdBy: user.id })
       if (!team1Result.success || !team1Result.data) {
         alert('Failed to create Team 1')
@@ -191,23 +212,6 @@ export default function CreateMatchPage() {
       }
       const team1Id = team1Result.data.id
 
-      // Add Team 1 players
-      const team1PlayerIds: Record<string, string> = {}
-      for (const player of team1Players) {
-        const result = await addPlayerToTeam({
-          teamId: team1Id,
-          userId: player.userId,
-          playerName: player.name,
-          isGuest: player.isGuest,
-          isCaptain: player.isCaptain,
-          avatarIndex: player.avatarIndex,
-        })
-        if (result.success && result.data) {
-          team1PlayerIds[player.id] = result.data.id
-        }
-      }
-
-      // Create Team 2
       const team2Result = await createTeam({ name: team2Name, createdBy: user.id })
       if (!team2Result.success || !team2Result.data) {
         alert('Failed to create Team 2')
@@ -216,23 +220,7 @@ export default function CreateMatchPage() {
       }
       const team2Id = team2Result.data.id
 
-      // Add Team 2 players
-      const team2PlayerIds: Record<string, string> = {}
-      for (const player of team2Players) {
-        const result = await addPlayerToTeam({
-          teamId: team2Id,
-          userId: player.userId,
-          playerName: player.name,
-          isGuest: player.isGuest,
-          isCaptain: player.isCaptain,
-          avatarIndex: player.avatarIndex,
-        })
-        if (result.success && result.data) {
-          team2PlayerIds[player.id] = result.data.id
-        }
-      }
-
-      // Create match
+      // 2. Create match
       const matchResult = await createMatch({
         team1Id,
         team2Id,
@@ -246,18 +234,66 @@ export default function CreateMatchPage() {
         setIsLoading(false)
         return
       }
+      const matchId = matchResult.data.id
 
-      // Setup match - batsmen and bowler based on which team bats first
-      const battingPlayerIds = battingFirst === 'team1' ? team1PlayerIds : team2PlayerIds
-      const bowlingPlayerIds = battingFirst === 'team1' ? team2PlayerIds : team1PlayerIds
+      // 3. Determine batting/bowling teams
+      const battingTeamId = battingFirst === 'team1' ? team1Id : team2Id
+      const bowlingTeamId = battingFirst === 'team1' ? team2Id : team1Id
 
-      const setupResult = await setupMatch(matchResult.data.id, {
-        openingBatsmen: [battingPlayerIds[batsman1], battingPlayerIds[batsman2]],
-        openingBowler: bowlingPlayerIds[bowler],
+      // 4. Add opening players dynamically
+      const batsman1Result = await addPlayerToTeam({
+        teamId: battingTeamId,
+        userId: openingPlayers.batsman1.userId,
+        playerName: openingPlayers.batsman1.name,
+        isGuest: openingPlayers.batsman1.isGuest,
+        isCaptain: false,
+        avatarIndex: openingPlayers.batsman1.avatarIndex,
+      })
+      if (!batsman1Result.success || !batsman1Result.data) {
+        alert('Failed to add first batsman')
+        setIsLoading(false)
+        return
+      }
+      const batsman1Id = batsman1Result.data.id
+
+      const batsman2Result = await addPlayerToTeam({
+        teamId: battingTeamId,
+        userId: openingPlayers.batsman2.userId,
+        playerName: openingPlayers.batsman2.name,
+        isGuest: openingPlayers.batsman2.isGuest,
+        isCaptain: false,
+        avatarIndex: openingPlayers.batsman2.avatarIndex,
+      })
+      if (!batsman2Result.success || !batsman2Result.data) {
+        alert('Failed to add second batsman')
+        setIsLoading(false)
+        return
+      }
+      const batsman2Id = batsman2Result.data.id
+
+      const bowlerResult = await addPlayerToTeam({
+        teamId: bowlingTeamId,
+        userId: openingPlayers.bowler.userId,
+        playerName: openingPlayers.bowler.name,
+        isGuest: openingPlayers.bowler.isGuest,
+        isCaptain: false,
+        avatarIndex: openingPlayers.bowler.avatarIndex,
+      })
+      if (!bowlerResult.success || !bowlerResult.data) {
+        alert('Failed to add opening bowler')
+        setIsLoading(false)
+        return
+      }
+      const bowlerId = bowlerResult.data.id
+
+      // 5. Setup match with opening players
+      const setupResult = await setupMatch(matchId, {
+        openingBatsmen: [batsman1Id, batsman2Id],
+        openingBowler: bowlerId,
       })
 
       if (setupResult.success) {
-        router.push(`/matches/${matchResult.data.id}`)
+        router.push(`/matches/${matchId}`)
       } else {
         alert('Failed to setup match')
         setIsLoading(false)
@@ -281,6 +317,9 @@ export default function CreateMatchPage() {
     return null
   }
 
+  const battingTeamName = battingFirst === 'team1' ? team1Name : team2Name
+  const bowlingTeamName = battingFirst === 'team1' ? team2Name : team1Name
+
   return (
     <div className="max-w-4xl mx-auto space-y-6 px-4 sm:px-6">
       <div>
@@ -294,37 +333,30 @@ export default function CreateMatchPage() {
           <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${step >= 1 ? 'bg-black text-white' : 'bg-gray-200'}`}>
             1
           </div>
-          <span className="text-xs sm:text-sm font-medium hidden sm:inline">Match Details</span>
+          <span className="text-xs sm:text-sm font-medium hidden sm:inline">Match & Teams</span>
         </div>
         <div className="w-4 sm:w-12 h-0.5 bg-gray-300"></div>
         <div className={`flex items-center gap-1 sm:gap-2 ${step >= 2 ? 'text-black' : 'text-gray-400'}`}>
           <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${step >= 2 ? 'bg-black text-white' : 'bg-gray-200'}`}>
             2
           </div>
-          <span className="text-xs sm:text-sm font-medium hidden sm:inline">Team 1</span>
+          <span className="text-xs sm:text-sm font-medium hidden sm:inline">Toss</span>
         </div>
         <div className="w-4 sm:w-12 h-0.5 bg-gray-300"></div>
         <div className={`flex items-center gap-1 sm:gap-2 ${step >= 3 ? 'text-black' : 'text-gray-400'}`}>
           <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${step >= 3 ? 'bg-black text-white' : 'bg-gray-200'}`}>
             3
           </div>
-          <span className="text-xs sm:text-sm font-medium hidden sm:inline">Team 2</span>
-        </div>
-        <div className="w-4 sm:w-12 h-0.5 bg-gray-300"></div>
-        <div className={`flex items-center gap-1 sm:gap-2 ${step >= 4 ? 'text-black' : 'text-gray-400'}`}>
-          <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${step >= 4 ? 'bg-black text-white' : 'bg-gray-200'}`}>
-            4
-          </div>
-          <span className="text-xs sm:text-sm font-medium hidden sm:inline">Setup</span>
+          <span className="text-xs sm:text-sm font-medium hidden sm:inline">Opening Players</span>
         </div>
       </div>
 
-      {/* Step 1: Match Details */}
+      {/* Step 1: Match Details + Team Names */}
       {step === 1 && (
         <Card>
           <CardHeader>
-            <CardTitle>Match Details</CardTitle>
-            <CardDescription>Configure match settings</CardDescription>
+            <CardTitle>Match Details & Team Names</CardTitle>
+            <CardDescription>Configure match settings and enter team names</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
@@ -366,371 +398,315 @@ export default function CreateMatchPage() {
               />
             </div>
 
-            <Button onClick={() => setStep(2)} className="w-full">
-              Next: Create Team 1
+            <div className="pt-4 border-t">
+              <h3 className="text-lg font-semibold mb-4">Team Names</h3>
+              <div className="space-y-3">
+                <div>
+                  <Label htmlFor="team1Name">Team 1 Name</Label>
+                  <Input
+                    id="team1Name"
+                    value={team1Name}
+                    onChange={(e) => setTeam1Name(e.target.value)}
+                    placeholder="Enter team 1 name"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="team2Name">Team 2 Name</Label>
+                  <Input
+                    id="team2Name"
+                    value={team2Name}
+                    onChange={(e) => setTeam2Name(e.target.value)}
+                    placeholder="Enter team 2 name"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <Button
+              onClick={() => setStep(2)}
+              disabled={!team1Name || !team2Name}
+              className="w-full"
+            >
+              Next: Toss
             </Button>
           </CardContent>
         </Card>
       )}
 
-      {/* Step 2: Team 1 */}
+      {/* Step 2: Toss */}
       {step === 2 && (
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Team 1 Details</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <Label htmlFor="team1Name">Team Name</Label>
-                <Input
-                  id="team1Name"
-                  value={team1Name}
-                  onChange={(e) => setTeam1Name(e.target.value)}
-                  placeholder="Enter team name"
-                />
-              </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Toss</CardTitle>
+            <CardDescription>Which team will bat first?</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label htmlFor="battingFirst">Select Batting Team</Label>
+              <Select value={battingFirst} onValueChange={(value: 'team1' | 'team2') => setBattingFirst(value)}>
+                <SelectTrigger id="battingFirst">
+                  <SelectValue placeholder="Select batting team" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="team1">{team1Name}</SelectItem>
+                  <SelectItem value="team2">{team2Name}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-              <div>
-                <Label>Search Registered Players</Label>
-                <Input
-                  value={team1SearchQuery}
-                  onChange={(e) => handleSearchTeam1(e.target.value)}
-                  placeholder="Search by name or email"
-                />
-                {team1SearchResults.length > 0 && (
-                  <div className="mt-2 border rounded-md max-h-48 overflow-y-auto">
-                    {team1SearchResults.map((user) => (
-                      <div
-                        key={user.id}
-                        className="p-2 hover:bg-gray-50 cursor-pointer flex items-center justify-between"
-                        onClick={() => addRegisteredPlayerTeam1(user)}
-                      >
-                        <div>
-                          <p className="font-medium text-sm">{user.name}</p>
-                          <p className="text-xs text-gray-500">{user.email}</p>
-                        </div>
-                        <Button type="button" size="sm">Add</Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="flex gap-2">
-                <div className="flex-1">
-                  <Label htmlFor="team1PlayerName">Add Guest Player</Label>
-                  <Input
-                    id="team1PlayerName"
-                    value={team1PlayerName}
-                    onChange={(e) => setTeam1PlayerName(e.target.value)}
-                    placeholder="Guest player name"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault()
-                        addGuestPlayerTeam1()
-                      }
-                    }}
-                  />
-                </div>
-                <div className="flex items-end">
-                  <Button type="button" onClick={addGuestPlayerTeam1}>
-                    Add Guest
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {team1Players.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Team 1 Players ({team1Players.length})</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {team1Players.map((player) => (
-                    <div
-                      key={player.id}
-                      className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 border rounded-md gap-3"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center font-bold flex-shrink-0">
-                          {player.name.charAt(0).toUpperCase()}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium truncate">{player.name}</p>
-                          <p className="text-xs text-gray-500">
-                            {player.isGuest ? 'Guest' : 'Registered'}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={player.isCaptain ? 'default' : 'outline'}
-                          onClick={() => toggleCaptainTeam1(player.id)}
-                          className="flex-1 sm:flex-none text-xs"
-                        >
-                          {player.isCaptain ? 'Captain' : 'Make Captain'}
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => removePlayerTeam1(player.id)}
-                          className="flex-1 sm:flex-none"
-                        >
-                          Remove
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          <div className="flex flex-col sm:flex-row gap-4">
-            <Button variant="outline" onClick={() => setStep(1)} className="flex-1">
-              Back
-            </Button>
-            <Button
-              onClick={() => setStep(3)}
-              disabled={!team1Name || team1Players.length === 0}
-              className="flex-1"
-            >
-              Next: Create Team 2
-            </Button>
-          </div>
-        </div>
+            <div className="flex flex-col sm:flex-row gap-4">
+              <Button variant="outline" onClick={() => setStep(1)} className="flex-1">
+                Back
+              </Button>
+              <Button
+                onClick={() => setStep(3)}
+                disabled={!battingFirst}
+                className="flex-1"
+              >
+                Next: Add Opening Players
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
-      {/* Step 3: Team 2 */}
-      {step === 3 && (
+      {/* Step 3: Opening Players */}
+      {step === 3 && battingFirst && (
         <div className="space-y-4">
+          {/* First Opening Batsman */}
           <Card>
             <CardHeader>
-              <CardTitle>Team 2 Details</CardTitle>
+              <CardTitle>First Opening Batsman ({battingTeamName})</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <Label htmlFor="team2Name">Team Name</Label>
-                <Input
-                  id="team2Name"
-                  value={team2Name}
-                  onChange={(e) => setTeam2Name(e.target.value)}
-                  placeholder="Enter team name"
-                />
-              </div>
+            <CardContent>
+              <Tabs defaultValue="search" className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="search">Search User</TabsTrigger>
+                  <TabsTrigger value="guest">Guest Player</TabsTrigger>
+                </TabsList>
 
-              <div>
-                <Label>Search Registered Players</Label>
-                <Input
-                  value={team2SearchQuery}
-                  onChange={(e) => handleSearchTeam2(e.target.value)}
-                  placeholder="Search by name or email"
-                />
-                {team2SearchResults.length > 0 && (
-                  <div className="mt-2 border rounded-md max-h-48 overflow-y-auto">
-                    {team2SearchResults.map((user) => (
-                      <div
-                        key={user.id}
-                        className="p-2 hover:bg-gray-50 cursor-pointer flex items-center justify-between"
-                        onClick={() => addRegisteredPlayerTeam2(user)}
-                      >
-                        <div>
-                          <p className="font-medium text-sm">{user.name}</p>
-                          <p className="text-xs text-gray-500">{user.email}</p>
-                        </div>
-                        <Button type="button" size="sm">Add</Button>
-                      </div>
-                    ))}
+                <TabsContent value="search" className="space-y-3">
+                  <div>
+                    <Label>Search by name or email</Label>
+                    <Input
+                      value={batsman1SearchQuery}
+                      onChange={(e) => handleSearchBatsman1(e.target.value)}
+                      placeholder="Type to search..."
+                    />
                   </div>
-                )}
-              </div>
+                  {batsman1SearchResults.length > 0 && (
+                    <div className="border rounded-md max-h-48 overflow-y-auto">
+                      {batsman1SearchResults.map((user) => (
+                        <div
+                          key={user.id}
+                          className="p-3 hover:bg-gray-50 cursor-pointer flex items-center justify-between"
+                          onClick={() => addRegisteredBatsman1(user)}
+                        >
+                          <div>
+                            <p className="font-medium">{user.name}</p>
+                            <p className="text-sm text-gray-500">{user.email}</p>
+                          </div>
+                          <Button size="sm" type="button">Add</Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </TabsContent>
 
-              <div className="flex gap-2">
-                <div className="flex-1">
-                  <Label htmlFor="team2PlayerName">Add Guest Player</Label>
-                  <Input
-                    id="team2PlayerName"
-                    value={team2PlayerName}
-                    onChange={(e) => setTeam2PlayerName(e.target.value)}
-                    placeholder="Guest player name"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault()
-                        addGuestPlayerTeam2()
-                      }
-                    }}
-                  />
-                </div>
-                <div className="flex items-end">
-                  <Button type="button" onClick={addGuestPlayerTeam2}>
-                    Add Guest
+                <TabsContent value="guest" className="space-y-3">
+                  <div>
+                    <Label htmlFor="batsman1Guest">Player Name</Label>
+                    <Input
+                      id="batsman1Guest"
+                      value={batsman1GuestName}
+                      onChange={(e) => setBatsman1GuestName(e.target.value)}
+                      placeholder="Enter player name"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          addGuestBatsman1()
+                        }
+                      }}
+                    />
+                  </div>
+                  <Button onClick={addGuestBatsman1} disabled={!batsman1GuestName.trim()} className="w-full">
+                    Add Guest Player
                   </Button>
+                </TabsContent>
+              </Tabs>
+
+              {openingPlayers.batsman1 && (
+                <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-md">
+                  <p className="font-medium text-green-800">
+                    ✓ {openingPlayers.batsman1.name}
+                    <span className="text-sm text-green-600 ml-2">
+                      ({openingPlayers.batsman1.isGuest ? 'Guest' : 'Registered'})
+                    </span>
+                  </p>
                 </div>
-              </div>
+              )}
             </CardContent>
           </Card>
 
-          {team2Players.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Team 2 Players ({team2Players.length})</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {team2Players.map((player) => (
-                    <div
-                      key={player.id}
-                      className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 border rounded-md gap-3"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center font-bold flex-shrink-0">
-                          {player.name.charAt(0).toUpperCase()}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium truncate">{player.name}</p>
-                          <p className="text-xs text-gray-500">
-                            {player.isGuest ? 'Guest' : 'Registered'}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={player.isCaptain ? 'default' : 'outline'}
-                          onClick={() => toggleCaptainTeam2(player.id)}
-                          className="flex-1 sm:flex-none text-xs"
-                        >
-                          {player.isCaptain ? 'Captain' : 'Make Captain'}
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => removePlayerTeam2(player.id)}
-                          className="flex-1 sm:flex-none"
-                        >
-                          Remove
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+          {/* Second Opening Batsman */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Second Opening Batsman ({battingTeamName})</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Tabs defaultValue="search" className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="search">Search User</TabsTrigger>
+                  <TabsTrigger value="guest">Guest Player</TabsTrigger>
+                </TabsList>
 
+                <TabsContent value="search" className="space-y-3">
+                  <div>
+                    <Label>Search by name or email</Label>
+                    <Input
+                      value={batsman2SearchQuery}
+                      onChange={(e) => handleSearchBatsman2(e.target.value)}
+                      placeholder="Type to search..."
+                    />
+                  </div>
+                  {batsman2SearchResults.length > 0 && (
+                    <div className="border rounded-md max-h-48 overflow-y-auto">
+                      {batsman2SearchResults.map((user) => (
+                        <div
+                          key={user.id}
+                          className="p-3 hover:bg-gray-50 cursor-pointer flex items-center justify-between"
+                          onClick={() => addRegisteredBatsman2(user)}
+                        >
+                          <div>
+                            <p className="font-medium">{user.name}</p>
+                            <p className="text-sm text-gray-500">{user.email}</p>
+                          </div>
+                          <Button size="sm" type="button">Add</Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="guest" className="space-y-3">
+                  <div>
+                    <Label htmlFor="batsman2Guest">Player Name</Label>
+                    <Input
+                      id="batsman2Guest"
+                      value={batsman2GuestName}
+                      onChange={(e) => setBatsman2GuestName(e.target.value)}
+                      placeholder="Enter player name"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          addGuestBatsman2()
+                        }
+                      }}
+                    />
+                  </div>
+                  <Button onClick={addGuestBatsman2} disabled={!batsman2GuestName.trim()} className="w-full">
+                    Add Guest Player
+                  </Button>
+                </TabsContent>
+              </Tabs>
+
+              {openingPlayers.batsman2 && (
+                <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-md">
+                  <p className="font-medium text-green-800">
+                    ✓ {openingPlayers.batsman2.name}
+                    <span className="text-sm text-green-600 ml-2">
+                      ({openingPlayers.batsman2.isGuest ? 'Guest' : 'Registered'})
+                    </span>
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Opening Bowler */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Opening Bowler ({bowlingTeamName})</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Tabs defaultValue="search" className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="search">Search User</TabsTrigger>
+                  <TabsTrigger value="guest">Guest Player</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="search" className="space-y-3">
+                  <div>
+                    <Label>Search by name or email</Label>
+                    <Input
+                      value={bowlerSearchQuery}
+                      onChange={(e) => handleSearchBowler(e.target.value)}
+                      placeholder="Type to search..."
+                    />
+                  </div>
+                  {bowlerSearchResults.length > 0 && (
+                    <div className="border rounded-md max-h-48 overflow-y-auto">
+                      {bowlerSearchResults.map((user) => (
+                        <div
+                          key={user.id}
+                          className="p-3 hover:bg-gray-50 cursor-pointer flex items-center justify-between"
+                          onClick={() => addRegisteredBowler(user)}
+                        >
+                          <div>
+                            <p className="font-medium">{user.name}</p>
+                            <p className="text-sm text-gray-500">{user.email}</p>
+                          </div>
+                          <Button size="sm" type="button">Add</Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="guest" className="space-y-3">
+                  <div>
+                    <Label htmlFor="bowlerGuest">Player Name</Label>
+                    <Input
+                      id="bowlerGuest"
+                      value={bowlerGuestName}
+                      onChange={(e) => setBowlerGuestName(e.target.value)}
+                      placeholder="Enter player name"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          addGuestBowler()
+                        }
+                      }}
+                    />
+                  </div>
+                  <Button onClick={addGuestBowler} disabled={!bowlerGuestName.trim()} className="w-full">
+                    Add Guest Player
+                  </Button>
+                </TabsContent>
+              </Tabs>
+
+              {openingPlayers.bowler && (
+                <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-md">
+                  <p className="font-medium text-green-800">
+                    ✓ {openingPlayers.bowler.name}
+                    <span className="text-sm text-green-600 ml-2">
+                      ({openingPlayers.bowler.isGuest ? 'Guest' : 'Registered'})
+                    </span>
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Action Buttons */}
           <div className="flex flex-col sm:flex-row gap-4">
             <Button variant="outline" onClick={() => setStep(2)} className="flex-1">
               Back
             </Button>
             <Button
-              onClick={() => setStep(4)}
-              disabled={!team2Name || team2Players.length === 0}
-              className="flex-1"
-            >
-              Next: Match Setup
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Step 4: Match Setup */}
-      {step === 4 && (
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Match Setup</CardTitle>
-              <CardDescription>Choose which team bats first and select opening players</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <Label htmlFor="battingFirst">Which team will bat first?</Label>
-                <Select value={battingFirst} onValueChange={(value: 'team1' | 'team2') => {
-                  setBattingFirst(value)
-                  setBatsman1('')
-                  setBatsman2('')
-                  setBowler('')
-                }}>
-                  <SelectTrigger id="battingFirst">
-                    <SelectValue placeholder="Select batting team" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="team1">{team1Name}</SelectItem>
-                    <SelectItem value="team2">{team2Name}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {battingFirst && (
-                <>
-                  <div>
-                    <Label htmlFor="batsman1">First Opening Batsman ({battingFirst === 'team1' ? team1Name : team2Name})</Label>
-                    <Select value={batsman1} onValueChange={setBatsman1}>
-                      <SelectTrigger id="batsman1">
-                        <SelectValue placeholder="Select first batsman" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(battingFirst === 'team1' ? team1Players : team2Players).map((player) => (
-                          <SelectItem key={player.id} value={player.id}>
-                            {player.name} {player.isCaptain ? '⭐' : ''}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="batsman2">Second Opening Batsman ({battingFirst === 'team1' ? team1Name : team2Name})</Label>
-                    <Select value={batsman2} onValueChange={setBatsman2}>
-                      <SelectTrigger id="batsman2">
-                        <SelectValue placeholder="Select second batsman" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(battingFirst === 'team1' ? team1Players : team2Players)
-                          .filter((player) => player.id !== batsman1)
-                          .map((player) => (
-                            <SelectItem key={player.id} value={player.id}>
-                              {player.name} {player.isCaptain ? '⭐' : ''}
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="bowler">Opening Bowler ({battingFirst === 'team1' ? team2Name : team1Name})</Label>
-                    <Select value={bowler} onValueChange={setBowler}>
-                      <SelectTrigger id="bowler">
-                        <SelectValue placeholder="Select opening bowler" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(battingFirst === 'team1' ? team2Players : team1Players).map((player) => (
-                          <SelectItem key={player.id} value={player.id}>
-                            {player.name} {player.isCaptain ? '⭐' : ''}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-
-          <div className="flex flex-col sm:flex-row gap-4">
-            <Button variant="outline" onClick={() => setStep(3)} className="flex-1">
-              Back
-            </Button>
-            <Button
               onClick={handleCreateMatch}
-              disabled={!battingFirst || !batsman1 || !batsman2 || !bowler || isLoading}
+              disabled={!openingPlayers.batsman1 || !openingPlayers.batsman2 || !openingPlayers.bowler || isLoading}
               className="flex-1"
             >
               {isLoading ? 'Creating Match...' : 'Start Match'}

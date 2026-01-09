@@ -23,6 +23,9 @@ import {
 import { LocalMatchEngine } from '@/lib/cricket/local-match-engine'
 import { completeMatch } from '@/actions/sync'
 import { Undo } from 'lucide-react'
+import { PlayerAdditionDialog } from '@/components/match/PlayerAdditionDialog'
+import { getTeam } from '@/actions/teams'
+import { Label } from '@/components/ui/label'
 
 export default function MatchScoringPage({ params }: { params: Promise<{ matchId: string }> }) {
   const { matchId } = use(params)
@@ -55,6 +58,14 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
   const [newInningsBatsman1, setNewInningsBatsman1] = useState('')
   const [newInningsBatsman2, setNewInningsBatsman2] = useState('')
   const [newInningsBowler, setNewInningsBowler] = useState('')
+
+  // Player addition dialog state
+  const [showPlayerAddition, setShowPlayerAddition] = useState(false)
+  const [playerAdditionContext, setPlayerAdditionContext] = useState<{
+    role: 'batsman' | 'bowler'
+    teamId: string
+    teamName: string
+  } | null>(null)
 
   // Check if match is complete and auto-sync
   const checkAndCompleteMatch = async () => {
@@ -195,6 +206,70 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
       }
     } else {
       console.log('Match NOT complete yet, isMatchComplete =', isMatchComplete)
+    }
+  }
+
+  // Handle player added callback
+  const handlePlayerAdded = async (playerId: string, playerName: string) => {
+    console.log('Player added:', playerId, playerName)
+
+    // Close addition dialog
+    setShowPlayerAddition(false)
+
+    // Update local state with new player
+    const teamId = playerAdditionContext!.teamId
+    await syncNewPlayerToLocalState(teamId, playerId)
+
+    // Auto-select newly added player
+    if (playerAdditionContext!.role === 'batsman') {
+      setNewBatsmanId(playerId)
+    } else {
+      setNewBowlerId(playerId)
+    }
+
+    // Refresh available players
+    await fetchMatchData()
+  }
+
+  // Sync new player to localStorage (if local scoring)
+  const syncNewPlayerToLocalState = async (teamId: string, playerId: string) => {
+    if (!useLocalScoring) return
+
+    const localState = loadLocalMatchState(matchId)
+    if (!localState) return
+
+    // Fetch updated team data
+    const teamResult = await getTeam(teamId)
+
+    if (teamResult.success && teamResult.data) {
+      const newPlayer = teamResult.data.players.find((p: any) => p.id === playerId)
+      if (!newPlayer) return
+
+      // Add to correct team in local state
+      const team = localState.match.team1_id === teamId
+        ? localState.match.team1
+        : localState.match.team2
+
+      if (!team.team_players.find((p: any) => p.id === playerId)) {
+        team.team_players.push(newPlayer)
+        saveLocalMatchState(matchId, localState)
+      }
+    }
+  }
+
+  // Ensure player exists before engine operation
+  const ensurePlayerInLocalState = async (playerId: string, teamId: string) => {
+    if (!useLocalScoring) return
+
+    const localState = loadLocalMatchState(matchId)
+    if (!localState) return
+
+    const team = localState.match.team1_id === teamId
+      ? localState.match.team1
+      : localState.match.team2
+
+    if (!team.team_players.find((p: any) => p.id === playerId)) {
+      await syncNewPlayerToLocalState(teamId, playerId)
     }
   }
 
@@ -1508,57 +1583,100 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
             <DialogTitle>Select New Batsman</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <Select value={newBatsmanId} onValueChange={setNewBatsmanId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select batsman" />
-              </SelectTrigger>
-              <SelectContent>
-                {/* Retired hurt players first */}
-                {battingStats
-                  .filter(
-                    (stat: any) =>
-                      stat.innings_number === match.current_innings &&
-                      stat.dismissal_type === 'retired_hurt' &&
-                      stat.is_out
-                  )
-                  .map((stat: any) => (
-                    <SelectItem key={stat.team_player_id} value={stat.team_player_id}>
-                      {stat.player?.player_name || 'Unknown'} (Retired Hurt - Can Return)
-                    </SelectItem>
-                  ))}
-                {/* Fresh batsmen */}
-                {availableBatsmen
-                  .filter((player: any) => {
-                    // Exclude batsmen who are already batting or out (except retired hurt)
-                    const existingStat = battingStats.find(
-                      (stat: any) =>
-                        stat.team_player_id === player.id &&
-                        stat.innings_number === match.current_innings
-                    )
-                    if (!existingStat) return true // Fresh player
-                    // Allow if retired hurt
-                    return existingStat.dismissal_type === 'retired_hurt' && existingStat.is_out
+            {availableBatsmen.length > 0 && (
+              <>
+                <div>
+                  <Label>Select Existing Player</Label>
+                  <Select value={newBatsmanId} onValueChange={setNewBatsmanId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select batsman" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {/* Retired hurt players first */}
+                      {battingStats
+                        .filter(
+                          (stat: any) =>
+                            stat.innings_number === match.current_innings &&
+                            stat.dismissal_type === 'retired_hurt' &&
+                            stat.is_out
+                        )
+                        .map((stat: any) => (
+                          <SelectItem key={stat.team_player_id} value={stat.team_player_id}>
+                            {stat.player?.player_name || 'Unknown'} (Retired Hurt - Can Return)
+                          </SelectItem>
+                        ))}
+                      {/* Fresh batsmen */}
+                      {availableBatsmen
+                        .filter((player: any) => {
+                          // Exclude batsmen who are already batting or out (except retired hurt)
+                          const existingStat = battingStats.find(
+                            (stat: any) =>
+                              stat.team_player_id === player.id &&
+                              stat.innings_number === match.current_innings
+                          )
+                          if (!existingStat) return true // Fresh player
+                          // Allow if retired hurt
+                          return existingStat.dismissal_type === 'retired_hurt' && existingStat.is_out
+                        })
+                        .map((player: any) => {
+                          const isRetiredHurt = battingStats.some(
+                            (stat: any) =>
+                              stat.team_player_id === player.id &&
+                              stat.innings_number === match.current_innings &&
+                              stat.dismissal_type === 'retired_hurt'
+                          )
+                          if (isRetiredHurt) return null // Already shown above
+                          return (
+                            <SelectItem key={player.id} value={player.id}>
+                              {player.player_name}
+                            </SelectItem>
+                          )
+                        })
+                        .filter(Boolean)}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-white px-2 text-muted-foreground">Or</span>
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div>
+              <Label>Add New Player to Team</Label>
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  const battingTeam = match?.team1_id === availableBatsmen[0]?.team_id ? match?.team1 : match?.team2
+                  const battingTeamId = battingTeam?.id || match?.batting_team_id
+                  const battingTeamName = battingTeam?.name || 'Batting Team'
+
+                  setPlayerAdditionContext({
+                    role: 'batsman',
+                    teamId: battingTeamId,
+                    teamName: battingTeamName
                   })
-                  .map((player: any) => {
-                    const isRetiredHurt = battingStats.some(
-                      (stat: any) =>
-                        stat.team_player_id === player.id &&
-                        stat.innings_number === match.current_innings &&
-                        stat.dismissal_type === 'retired_hurt'
-                    )
-                    if (isRetiredHurt) return null // Already shown above
-                    return (
-                      <SelectItem key={player.id} value={player.id}>
-                        {player.player_name}
-                      </SelectItem>
-                    )
-                  })
-                  .filter(Boolean)}
-              </SelectContent>
-            </Select>
+                  setShowPlayerAddition(true)
+                }}
+              >
+                + Add New Batsman
+              </Button>
+            </div>
+
             <Button
               onClick={async () => {
                 if (newBatsmanId) {
+                  // Ensure player is in local state first
+                  const battingTeamId = match?.batting_team_id
+                  await ensurePlayerInLocalState(newBatsmanId, battingTeamId)
+
                   if (useLocalScoring) {
                     const engine = new LocalMatchEngine(matchId)
                     engine.addBatsman(newBatsmanId, match.current_innings)
@@ -1592,29 +1710,72 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
             <DialogTitle>Select New Bowler</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <Select value={newBowlerId} onValueChange={setNewBowlerId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select bowler" />
-              </SelectTrigger>
-              <SelectContent>
-                {availableBowlers
-                  .filter((player: any) => {
-                    // Exclude current bowler (can't bowl consecutive overs)
-                    if (currentBowler && currentBowler.team_player_id === player.id) {
-                      return false
-                    }
-                    return true
+            {availableBowlers.length > 0 && (
+              <>
+                <div>
+                  <Label>Select Existing Bowler</Label>
+                  <Select value={newBowlerId} onValueChange={setNewBowlerId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select bowler" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableBowlers
+                        .filter((player: any) => {
+                          // Exclude current bowler (can't bowl consecutive overs)
+                          if (currentBowler && currentBowler.team_player_id === player.id) {
+                            return false
+                          }
+                          return true
+                        })
+                        .map((player: any) => (
+                          <SelectItem key={player.id} value={player.id}>
+                            {player.player_name}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-white px-2 text-muted-foreground">Or</span>
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div>
+              <Label>Add New Bowler to Team</Label>
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  const bowlingTeam = match?.team1_id !== match?.batting_team_id ? match?.team1 : match?.team2
+                  const bowlingTeamId = bowlingTeam?.id
+                  const bowlingTeamName = bowlingTeam?.name || 'Bowling Team'
+
+                  setPlayerAdditionContext({
+                    role: 'bowler',
+                    teamId: bowlingTeamId,
+                    teamName: bowlingTeamName
                   })
-                  .map((player: any) => (
-                    <SelectItem key={player.id} value={player.id}>
-                      {player.player_name}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
+                  setShowPlayerAddition(true)
+                }}
+              >
+                + Add New Bowler
+              </Button>
+            </div>
+
             <Button
               onClick={async () => {
                 if (newBowlerId) {
+                  // Ensure player is in local state first
+                  const bowlingTeamId = match?.team1_id !== match?.batting_team_id ? match?.team1_id : match?.team2_id
+                  await ensurePlayerInLocalState(newBowlerId, bowlingTeamId)
+
                   if (useLocalScoring) {
                     const engine = new LocalMatchEngine(matchId)
                     engine.addBowler(newBowlerId, match.current_innings)
@@ -1646,58 +1807,141 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium">First Opening Batsman</label>
-              <Select value={newInningsBatsman1} onValueChange={setNewInningsBatsman1}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select first batsman" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableBatsmen.map((player: any) => (
-                    <SelectItem key={player.id} value={player.id}>
-                      {player.player_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium">Second Opening Batsman</label>
-              <Select value={newInningsBatsman2} onValueChange={setNewInningsBatsman2}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select second batsman" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableBatsmen
-                    .filter((player: any) => player.id !== newInningsBatsman1)
-                    .map((player: any) => (
+              <Label>First Opening Batsman</Label>
+              {availableBatsmen.length > 0 && (
+                <Select value={newInningsBatsman1} onValueChange={setNewInningsBatsman1}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select first batsman" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableBatsmen.map((player: any) => (
                       <SelectItem key={player.id} value={player.id}>
                         {player.player_name}
                       </SelectItem>
                     ))}
-                </SelectContent>
-              </Select>
+                  </SelectContent>
+                </Select>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2 w-full"
+                onClick={() => {
+                  const battingTeamId = match?.batting_team_id
+                  const battingTeamName = match?.team1_id === battingTeamId ? match?.team1?.name : match?.team2?.name
+
+                  setPlayerAdditionContext({
+                    role: 'batsman',
+                    teamId: battingTeamId,
+                    teamName: battingTeamName || 'Batting Team'
+                  })
+                  setShowPlayerAddition(true)
+                }}
+              >
+                + Add New Batsman
+              </Button>
+              {newInningsBatsman1 && (
+                <p className="text-sm text-green-600 mt-1">
+                  ✓ {availableBatsmen.find((p: any) => p.id === newInningsBatsman1)?.player_name}
+                </p>
+              )}
             </div>
 
             <div>
-              <label className="text-sm font-medium">Opening Bowler</label>
-              <Select value={newInningsBowler} onValueChange={setNewInningsBowler}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select opening bowler" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableBowlers.map((player: any) => (
-                    <SelectItem key={player.id} value={player.id}>
-                      {player.player_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Second Opening Batsman</Label>
+              {availableBatsmen.length > 0 && (
+                <Select value={newInningsBatsman2} onValueChange={setNewInningsBatsman2}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select second batsman" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableBatsmen
+                      .filter((player: any) => player.id !== newInningsBatsman1)
+                      .map((player: any) => (
+                        <SelectItem key={player.id} value={player.id}>
+                          {player.player_name}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2 w-full"
+                onClick={() => {
+                  const battingTeamId = match?.batting_team_id
+                  const battingTeamName = match?.team1_id === battingTeamId ? match?.team1?.name : match?.team2?.name
+
+                  setPlayerAdditionContext({
+                    role: 'batsman',
+                    teamId: battingTeamId,
+                    teamName: battingTeamName || 'Batting Team'
+                  })
+                  setShowPlayerAddition(true)
+                }}
+              >
+                + Add New Batsman
+              </Button>
+              {newInningsBatsman2 && (
+                <p className="text-sm text-green-600 mt-1">
+                  ✓ {availableBatsmen.find((p: any) => p.id === newInningsBatsman2)?.player_name}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <Label>Opening Bowler</Label>
+              {availableBowlers.length > 0 && (
+                <Select value={newInningsBowler} onValueChange={setNewInningsBowler}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select opening bowler" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableBowlers.map((player: any) => (
+                      <SelectItem key={player.id} value={player.id}>
+                        {player.player_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2 w-full"
+                onClick={() => {
+                  const bowlingTeamId = match?.team1_id !== match?.batting_team_id ? match?.team1_id : match?.team2_id
+                  const bowlingTeamName = match?.team1_id === bowlingTeamId ? match?.team1?.name : match?.team2?.name
+
+                  setPlayerAdditionContext({
+                    role: 'bowler',
+                    teamId: bowlingTeamId,
+                    teamName: bowlingTeamName || 'Bowling Team'
+                  })
+                  setShowPlayerAddition(true)
+                }}
+              >
+                + Add New Bowler
+              </Button>
+              {newInningsBowler && (
+                <p className="text-sm text-green-600 mt-1">
+                  ✓ {availableBowlers.find((p: any) => p.id === newInningsBowler)?.player_name}
+                </p>
+              )}
             </div>
 
             <Button
               onClick={async () => {
                 if (newInningsBatsman1 && newInningsBatsman2 && newInningsBowler) {
+                  // Ensure players are in local state first
+                  const battingTeamId = match?.batting_team_id
+                  const bowlingTeamId = match?.team1_id !== battingTeamId ? match?.team1_id : match?.team2_id
+
+                  await ensurePlayerInLocalState(newInningsBatsman1, battingTeamId)
+                  await ensurePlayerInLocalState(newInningsBatsman2, battingTeamId)
+                  await ensurePlayerInLocalState(newInningsBowler, bowlingTeamId)
+
                   if (useLocalScoring) {
                     const engine = new LocalMatchEngine(matchId)
                     engine.addBatsman(newInningsBatsman1, match.current_innings)
@@ -1722,11 +1966,30 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
               className="w-full"
               disabled={!newInningsBatsman1 || !newInningsBatsman2 || !newInningsBowler}
             >
-              Start Innings
+              {(!newInningsBatsman1 || !newInningsBatsman2 || !newInningsBowler)
+                ? 'Add all 3 players to start'
+                : 'Start Innings'}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Player Addition Dialog - Reusable for all player additions */}
+      {playerAdditionContext && (
+        <PlayerAdditionDialog
+          open={showPlayerAddition}
+          onOpenChange={setShowPlayerAddition}
+          teamId={playerAdditionContext.teamId}
+          teamName={playerAdditionContext.teamName}
+          role={playerAdditionContext.role}
+          onPlayerAdded={handlePlayerAdded}
+          existingPlayerIds={
+            playerAdditionContext.teamId === match?.team1_id
+              ? (match?.team1?.team_players || []).map((p: any) => p.user_id).filter(Boolean)
+              : (match?.team2?.team_players || []).map((p: any) => p.user_id).filter(Boolean)
+          }
+        />
+      )}
 
     </div>
   )
