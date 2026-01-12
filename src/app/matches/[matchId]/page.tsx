@@ -39,13 +39,11 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
   const [useLocalScoring, setUseLocalScoring] = useState(false)
   const [currentBatsmen, setCurrentBatsmen] = useState<any[]>([])
   const [currentBowler, setCurrentBowler] = useState<any>(null)
-  const [showWicketDialog, setShowWicketDialog] = useState(false)
   const [showBowlerDialog, setShowBowlerDialog] = useState(false)
   const [showBatsmanDialog, setShowBatsmanDialog] = useState(false)
   const [showWideDialog, setShowWideDialog] = useState(false)
   const [showNoBallDialog, setShowNoBallDialog] = useState(false)
   const [showRetireHurtDialog, setShowRetireHurtDialog] = useState(false)
-  const [wicketType, setWicketType] = useState('')
   const [newBowlerId, setNewBowlerId] = useState('')
   const [newBatsmanId, setNewBatsmanId] = useState('')
   const [strikerIndex, setStrikerIndex] = useState(0)
@@ -71,8 +69,8 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
   const [overCompletedDuringWicket, setOverCompletedDuringWicket] = useState(false)
 
   // Check if match is complete and auto-sync
-  const checkAndCompleteMatch = async () => {
-    console.log('=== checkAndCompleteMatch CALLED ===')
+  const checkAndCompleteMatch = async (forceEnd: boolean = false) => {
+    console.log('=== checkAndCompleteMatch CALLED ===', { forceEnd })
 
     // Check localStorage directly instead of relying on state variable
     const localState = loadLocalMatchState(matchId)
@@ -100,20 +98,39 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
       totalBattingPlayers,
       currentScore,
       team1_score: localMatch.team1_score,
-      team2_score: localMatch.team2_score
+      team2_score: localMatch.team2_score,
+      forceEnd
     })
 
     let isMatchComplete = false
     let resultText = ''
 
-    // Check if innings complete (all overs bowled OR all batsmen out)
-    if (currentOvers >= localMatch.total_overs || currentWickets >= totalBattingPlayers) {
-      console.log('Innings complete detected!')
+    // Check if innings complete
+    // With dynamic player registration, innings ONLY ends when:
+    // 1. All overs are bowled
+    // 2. Target is reached (second innings)
+    // 3. User manually clicks "End Innings" or "No New Batsman" with no batsmen left (forceEnd = true)
+    // DO NOT auto-end based on wickets!
+    const isOversComplete = currentOvers >= localMatch.total_overs
+    const isTargetReached = localMatch.current_innings === 2 && currentScore >= localMatch.target
+
+    if (isOversComplete || isTargetReached || forceEnd) {
+      console.log('Innings complete detected! Overs:', isOversComplete, 'Target:', isTargetReached)
+
       if (localMatch.current_innings === 1) {
         console.log('First innings complete, transitioning to innings 2')
         // First innings complete, start second innings
         localMatch.current_innings = 2
-        localMatch.target = (isFirstInnings ? localMatch.team1_score : localMatch.team2_score) + 1
+        localMatch.target = localMatch.team1_score + 1
+
+        // Set batting_team_id for second innings (opposite of first)
+        const innings1Batsmen = localState.battingStats.filter((s: any) => s.innings_number === 1)
+        if (innings1Batsmen.length > 0) {
+          const innings1BatsmanId = innings1Batsmen[0].team_player_id
+          const team1BattedFirst = localMatch.team1.team_players?.some((p: any) => p.id === innings1BatsmanId)
+          localMatch.batting_team_id = team1BattedFirst ? localMatch.team2_id : localMatch.team1_id
+        }
+
         saveLocalMatchState(matchId, localState)
 
         // Reload data to trigger innings setup dialog
@@ -124,58 +141,22 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
         // Second innings complete - match over
         isMatchComplete = true
 
-        // Determine which team batted in which innings by checking batting stats
-        const innings1Batsmen = localState.battingStats.filter((s: any) => s.innings_number === 1)
-
-        let team1BattedInnings1 = false
-        if (innings1Batsmen.length > 0) {
-          const innings1BatsmanId = innings1Batsmen[0].team_player_id
-          team1BattedInnings1 = localMatch.team1.team_players?.some((p: any) => p.id === innings1BatsmanId)
-        }
-
+        // Simple winner logic - just declare which team won
         const team1Name = localMatch.team1?.name || 'Team 1'
         const team2Name = localMatch.team2?.name || 'Team 2'
-        const team1Score = team1BattedInnings1 ? localMatch.team1_score : localMatch.team2_score
-        const team2Score = team1BattedInnings1 ? localMatch.team2_score : localMatch.team1_score
-        const team2Wickets = team1BattedInnings1 ? localMatch.team2_wickets : localMatch.team1_wickets
-        const battingFirstTeam = team1BattedInnings1 ? team1Name : team2Name
-        const battingSecondTeam = team1BattedInnings1 ? team2Name : team1Name
+        const team1Score = localMatch.team1_score || 0
+        const team2Score = localMatch.team2_score || 0
 
-        // Get the total players of the team that batted second for wickets calculation
-        const battingSecondTeamData = team1BattedInnings1 ? localMatch.team2 : localMatch.team1
-        const totalBattingSecondPlayers = battingSecondTeamData?.team_players?.length || 0
-
-        if (team2Score > team1Score) {
-          const wicketsRemaining = totalBattingSecondPlayers - team2Wickets
-          resultText = `${battingSecondTeam} won by ${wicketsRemaining} wickets`
-        } else if (team1Score > team2Score) {
-          resultText = `${battingFirstTeam} won by ${team1Score - team2Score} runs`
+        // Simple comparison - whoever scored more runs wins
+        if (team1Score > team2Score) {
+          resultText = `${team1Name} won`
+        } else if (team2Score > team1Score) {
+          resultText = `${team2Name} won`
         } else {
           resultText = 'Match tied'
         }
-      }
-    }
 
-    // Check if target chased in innings 2
-    if (localMatch.current_innings === 2) {
-      const innings1Score = isFirstInnings ? localMatch.team2_score : localMatch.team1_score
-
-      if (currentScore > innings1Score) {
-        isMatchComplete = true
-
-        // Determine which team is batting in innings 2
-        const innings2Batsmen = localState.battingStats.filter((s: any) => s.innings_number === 2)
-        let team2BattingInInnings2 = false
-        if (innings2Batsmen.length > 0) {
-          const innings2BatsmanId = innings2Batsmen[0].team_player_id
-          team2BattingInInnings2 = localMatch.team2.team_players?.some((p: any) => p.id === innings2BatsmanId)
-        }
-
-        const chasingTeam = team2BattingInInnings2 ? localMatch.team2?.name : localMatch.team1?.name
-        const chasingTeamData = team2BattingInInnings2 ? localMatch.team2 : localMatch.team1
-        const totalChasingPlayers = chasingTeamData?.team_players?.length || 0
-        const wicketsRemaining = totalChasingPlayers - currentWickets
-        resultText = `${chasingTeam} won by ${wicketsRemaining} wickets`
+        console.log('Match result:', resultText)
       }
     }
 
@@ -223,15 +204,96 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
     const teamId = playerAdditionContext!.teamId
     await syncNewPlayerToLocalState(teamId, playerId)
 
-    // Auto-select newly added player
-    if (playerAdditionContext!.role === 'batsman') {
-      setNewBatsmanId(playerId)
+    // Force a small delay to ensure localStorage is fully updated
+    await new Promise(resolve => setTimeout(resolve, 100))
+
+    // Refresh available players - reload from localStorage to get updated teams
+    const localState = loadLocalMatchState(matchId)
+    if (localState && localState.match.team1 && localState.match.team2) {
+      const { match: updatedMatch, battingStats: updatedBattingStats, bowlingStats: updatedBowlingStats } = localState
+
+      // Determine which team is batting/bowling from current batsmen
+      const currentInningsBatsmen = updatedBattingStats.filter((s: any) => s.innings_number === updatedMatch.current_innings && !s.is_out)
+      let battingTeam, bowlingTeam
+
+      if (currentInningsBatsmen.length > 0) {
+        const batsmanTeamId = currentInningsBatsmen[0].team_player_id
+        const isTeam1Batting = updatedMatch.team1.team_players?.some((p: any) => p.id === batsmanTeamId)
+        battingTeam = isTeam1Batting ? updatedMatch.team1 : updatedMatch.team2
+        bowlingTeam = isTeam1Batting ? updatedMatch.team2 : updatedMatch.team1
+      } else {
+        // Fallback
+        if (updatedMatch.current_innings === 2) {
+          const innings1Batsmen = updatedBattingStats.filter((s: any) => s.innings_number === 1)
+          if (innings1Batsmen.length > 0) {
+            const innings1BatsmanId = innings1Batsmen[0].team_player_id
+            const isTeam1BattedFirst = updatedMatch.team1.team_players?.some((p: any) => p.id === innings1BatsmanId)
+            battingTeam = isTeam1BattedFirst ? updatedMatch.team2 : updatedMatch.team1
+            bowlingTeam = isTeam1BattedFirst ? updatedMatch.team1 : updatedMatch.team2
+          } else {
+            battingTeam = updatedMatch.team2
+            bowlingTeam = updatedMatch.team1
+          }
+        } else {
+          battingTeam = updatedMatch.team1
+          bowlingTeam = updatedMatch.team2
+        }
+      }
+
+      console.log('Updated batting team players:', battingTeam.team_players)
+      console.log('Updated bowling team players:', bowlingTeam.team_players)
+
+      setAvailableBatsmen(battingTeam.team_players || [])
+      setAvailableBowlers(bowlingTeam.team_players || [])
     } else {
-      setNewBowlerId(playerId)
+      console.error('Failed to load local state after player addition')
     }
 
-    // Refresh available players
-    await fetchMatchData()
+    // Auto-add the player to the match immediately
+    if (playerAdditionContext!.role === 'batsman') {
+      // Add batsman to match
+      const battingTeamId = playerAdditionContext!.teamId
+      await ensurePlayerInLocalState(playerId, battingTeamId)
+
+      if (useLocalScoring) {
+        const engine = new LocalMatchEngine(matchId)
+        engine.addBatsman(playerId, match.current_innings)
+        await fetchMatchData(true)
+      } else {
+        await selectNewBatsman(matchId, playerId, match.current_innings)
+        await fetchMatchData(true)
+      }
+
+      setShowBatsmanDialog(false)
+
+      // Check if over was completed during the wicket
+      if (overCompletedDuringWicket) {
+        setTimeout(() => {
+          setShowBowlerDialog(true)
+          setOverCompletedDuringWicket(false)
+        }, 100)
+      } else {
+        setTimeout(() => {
+          setStrikerIndex(1)
+        }, 100)
+      }
+    } else {
+      // Add bowler to match
+      const bowlingTeamId = playerAdditionContext!.teamId
+      await ensurePlayerInLocalState(playerId, bowlingTeamId)
+
+      if (useLocalScoring) {
+        const engine = new LocalMatchEngine(matchId)
+        engine.addBowler(playerId, match.current_innings)
+        await fetchMatchData(true)
+      } else {
+        await changeBowler(matchId, playerId, match.current_innings)
+        await fetchMatchData(true)
+      }
+
+      setManuallySelectedBowlerId(playerId)
+      setShowBowlerDialog(false)
+    }
   }
 
   // Sync new player to localStorage (if local scoring)
@@ -246,7 +308,12 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
 
     if (teamResult.success && teamResult.data) {
       const newPlayer = teamResult.data.players.find((p: any) => p.id === playerId)
-      if (!newPlayer) return
+      if (!newPlayer) {
+        console.error('Player not found in team data after adding:', playerId)
+        return
+      }
+
+      console.log('Syncing new player to localStorage:', newPlayer)
 
       // Add to correct team in local state
       const team = localState.match.team1_id === teamId
@@ -254,9 +321,19 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
         : localState.match.team2
 
       if (!team.team_players.find((p: any) => p.id === playerId)) {
-        team.team_players.push(newPlayer)
+        // Ensure the player has the player_name field
+        const playerToAdd = {
+          ...newPlayer,
+          player_name: newPlayer.player_name || 'Unknown Player'
+        }
+        team.team_players.push(playerToAdd)
         saveLocalMatchState(matchId, localState)
+        console.log('Player added to team in localStorage:', playerToAdd)
+      } else {
+        console.log('Player already exists in team')
       }
+    } else {
+      console.error('Failed to fetch team data:', teamResult.error)
     }
   }
 
@@ -359,11 +436,6 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
         }
 
         setIsLoading(false)
-
-        // Check if match/innings is complete on load
-        console.log('Calling checkAndCompleteMatch from localStorage load path...')
-        await checkAndCompleteMatch()
-
         return
       }
     }
@@ -490,10 +562,6 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
           }
           // Always enable local scoring for creator with live match
           setUseLocalScoring(true)
-
-          // Check if match/innings is complete
-          console.log('Calling checkAndCompleteMatch from database load path...')
-          await checkAndCompleteMatch()
         }
       }
     }
@@ -502,7 +570,12 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
   }
 
   useEffect(() => {
-    fetchMatchData()
+    const initializeMatch = async () => {
+      await fetchMatchData()
+      // Check if match/innings is complete on initial load
+      await checkAndCompleteMatch()
+    }
+    initializeMatch()
 
     // Only poll database if not using local scoring
     if (!useLocalScoring) {
@@ -663,16 +736,14 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
         const isFirstInnings = newMatch.current_innings === 1
         const currentBalls = isFirstInnings ? newMatch.team1_balls : newMatch.team2_balls
         const currentOvers = isFirstInnings ? newMatch.team1_overs : newMatch.team2_overs
-        const currentWickets = isFirstInnings ? newMatch.team1_wickets : newMatch.team2_wickets
-
-        // Get total players in batting team for all-out check
-        const battingTeamForCheck = isFirstInnings ? newMatch.team1 : newMatch.team2
-        const totalBattingPlayersForCheck = battingTeamForCheck?.team_players?.length || 0
+        const currentScore = isFirstInnings ? newMatch.team1_score : newMatch.team2_score
 
         console.log('Over check - previousBalls:', previousBalls, 'currentBalls:', currentBalls)
 
-        // Check if innings complete - if so, don't show bowler dialog
-        const isInningsComplete = currentOvers >= newMatch.total_overs || currentWickets >= totalBattingPlayersForCheck
+        // Check if innings complete - ONLY overs or target, NOT wickets (dynamic player registration)
+        const isOversComplete = currentOvers >= newMatch.total_overs
+        const isTargetReached = newMatch.current_innings === 2 && currentScore >= newMatch.target
+        const isInningsComplete = isOversComplete || isTargetReached
 
         // Check if over just completed (balls reset to 0) AND innings not complete
         if (previousBalls > 0 && currentBalls === 0 && !isInningsComplete) {
@@ -747,12 +818,15 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
   }
 
   const handleWicket = async () => {
-    if (!wicketType || currentBatsmen.length < 1 || !currentBowler) return
+    if (currentBatsmen.length < 1 || !currentBowler) return
 
     const striker = currentBatsmen[strikerIndex] || currentBatsmen[0]
     const nonStriker = currentBatsmen.length > 1
       ? currentBatsmen[strikerIndex === 0 ? 1 : 0]
       : null
+
+    // Use "bowled" as default dismissal type for simplicity
+    const wicketType = 'bowled'
 
     if (useLocalScoring) {
       const engine = new LocalMatchEngine(matchId)
@@ -762,9 +836,6 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
         currentBowler.team_player_id,
         wicketType as any
       )
-
-      // Check if match complete and auto-sync FIRST
-      await checkAndCompleteMatch()
 
       // INSTANT refresh from localStorage
       const localState = loadLocalMatchState(matchId)
@@ -782,14 +853,13 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
         const isFirstInnings = newMatch.current_innings === 1
         const currentBalls = isFirstInnings ? newMatch.team1_balls : newMatch.team2_balls
         const currentOvers = isFirstInnings ? newMatch.team1_overs : newMatch.team2_overs
-        const currentWickets = isFirstInnings ? newMatch.team1_wickets : newMatch.team2_wickets
-
-        // Get total players in batting team for all-out check
-        const battingTeamForWicketCheck = isFirstInnings ? newMatch.team1 : newMatch.team2
-        const totalBattingPlayersForWicketCheck = battingTeamForWicketCheck?.team_players?.length || 0
+        const currentScore = isFirstInnings ? newMatch.team1_score : newMatch.team2_score
 
         // Check if innings complete - if so, don't show bowler dialog
-        const isInningsComplete = currentOvers >= newMatch.total_overs || currentWickets >= totalBattingPlayersForWicketCheck
+        // With dynamic player registration, innings ONLY ends when overs complete or target reached
+        const isOversComplete = currentOvers >= newMatch.total_overs
+        const isTargetReached = newMatch.current_innings === 2 && currentScore >= newMatch.target
+        const isInningsComplete = isOversComplete || isTargetReached
 
         // Check if over just completed (balls reset to 0) AND innings not complete
         if (previousBalls > 0 && currentBalls === 0 && !isInningsComplete) {
@@ -859,33 +929,9 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
       await fetchMatchData(true)
     }
 
-    setShowWicketDialog(false)
-    setWicketType('')
-
-    // Check if there are more batsmen available
-    const isRetiredHurt = wicketType === 'retired_hurt'
-    const totalPlayersInTeam = availableBatsmen.length
-
-    // Count how many batsmen have already batted (including the one just out)
-    const batsmenWhoHaveBatted = battingStats.filter(
-      (stat: any) => stat.innings_number === match.current_innings
-    ).length
-
-    // Count retired hurt players who can return
-    const retiredHurtPlayers = battingStats.filter(
-      (stat: any) =>
-        stat.innings_number === match.current_innings &&
-        stat.dismissal_type === 'retired_hurt' &&
-        stat.is_out
-    ).length
-
-    // Available batsmen = total players - batsmen who batted + retired hurt (they can return)
-    const availableBatsmenCount = totalPlayersInTeam - batsmenWhoHaveBatted + retiredHurtPlayers + (isRetiredHurt ? 1 : 0)
-
-    // Only prompt for new batsman if there are batsmen available
-    if (availableBatsmenCount > 0) {
-      setShowBatsmanDialog(true)
-    }
+    // ALWAYS show new batsman dialog after wicket
+    // User can select existing player, add new player, or click "No New Batsman"
+    setShowBatsmanDialog(true)
   }
 
   const handleRetireHurt = async () => {
@@ -970,24 +1016,9 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
 
     setShowRetireHurtDialog(false)
 
-    // Always prompt for new batsman
-    const totalPlayersInTeam = availableBatsmen.length
-    const batsmenWhoHaveBatted = battingStats.filter(
-      (stat: any) => stat.innings_number === match.current_innings
-    ).length
-
-    const retiredHurtPlayers = battingStats.filter(
-      (stat: any) =>
-        stat.innings_number === match.current_innings &&
-        stat.dismissal_type === 'retired_hurt' &&
-        stat.is_out
-    ).length
-
-    const availableBatsmenCount = totalPlayersInTeam - batsmenWhoHaveBatted + retiredHurtPlayers + 1
-
-    if (availableBatsmenCount > 0) {
-      setShowBatsmanDialog(true)
-    }
+    // ALWAYS show new batsman dialog after retire hurt
+    // User can select existing player, add new player, or click "No New Batsman"
+    setShowBatsmanDialog(true)
   }
 
   const handleWideClick = () => {
@@ -1089,6 +1120,9 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
     }
 
     setShowWideDialog(false)
+
+    // Check if innings/match is complete (overs might have completed)
+    await checkAndCompleteMatch()
   }
 
   const handleNoBallClick = () => {
@@ -1190,6 +1224,9 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
     }
 
     setShowNoBallDialog(false)
+
+    // Check if innings/match is complete (overs might have completed)
+    await checkAndCompleteMatch()
   }
 
   const handleUndo = async () => {
@@ -1420,15 +1457,37 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
       {/* Scoring Buttons - Fixed at bottom */}
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t shadow-lg">
         <div className="px-3 py-2">
-          {/* Undo button */}
-          <div className="mb-2">
+          {/* Action buttons */}
+          <div className="mb-2 grid grid-cols-2 gap-2">
             <Button
               onClick={handleUndo}
               variant="outline"
-              className="w-full h-9 text-sm"
+              className="h-9 text-sm"
               disabled={!match.balls || match.balls.filter((b: any) => b.innings_number === match.current_innings).length === 0}
             >
-              <Undo className="h-4 w-4 mr-2" /> Undo Last Ball
+              <Undo className="h-4 w-4 mr-2" /> Undo
+            </Button>
+            <Button
+              onClick={async () => {
+                const confirmEnd = window.confirm(
+                  match.current_innings === 1
+                    ? `End first innings and start second innings?`
+                    : `End second innings and complete the match?`
+                )
+
+                if (confirmEnd) {
+                  await checkAndCompleteMatch(true) // Force end innings
+                  await fetchMatchData()
+
+                  if (match.current_innings === 1) {
+                    setShowInningsSetup(true)
+                  }
+                }
+              }}
+              variant="destructive"
+              className="h-9 text-sm"
+            >
+              End Innings
             </Button>
           </div>
 
@@ -1446,38 +1505,13 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
           </div>
 
           <div className="grid grid-cols-4 gap-1.5 mb-1.5">
-            <Dialog open={showWicketDialog} onOpenChange={setShowWicketDialog}>
-              <Button
-                variant="destructive"
-                className="h-10 text-sm"
-                onClick={() => setShowWicketDialog(true)}
-              >
-                Wicket
-              </Button>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Record Wicket</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <Select value={wicketType} onValueChange={setWicketType}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select dismissal type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="bowled">Bowled</SelectItem>
-                      <SelectItem value="caught">Caught</SelectItem>
-                      <SelectItem value="lbw">LBW</SelectItem>
-                      <SelectItem value="run_out">Run Out</SelectItem>
-                      <SelectItem value="stumped">Stumped</SelectItem>
-                      <SelectItem value="hit_wicket">Hit Wicket</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Button onClick={handleWicket} className="w-full" disabled={!wicketType}>
-                    Confirm Wicket
-                  </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
+            <Button
+              variant="destructive"
+              className="h-10 text-sm"
+              onClick={handleWicket}
+            >
+              Wicket
+            </Button>
 
             <Button onClick={handleWideClick} variant="outline" className="h-10 text-sm">Wide</Button>
             <Button onClick={handleNoBallClick} variant="outline" className="h-10 text-sm">No Ball</Button>
@@ -1589,80 +1623,33 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
             <DialogTitle>Select New Batsman</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            {availableBatsmen.length > 0 && (
-              <>
-                <div>
-                  <Label>Select Existing Player</Label>
-                  <Select value={newBatsmanId} onValueChange={setNewBatsmanId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select batsman" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {/* Retired hurt players first */}
-                      {battingStats
-                        .filter(
-                          (stat: any) =>
-                            stat.innings_number === match.current_innings &&
-                            stat.dismissal_type === 'retired_hurt' &&
-                            stat.is_out
-                        )
-                        .map((stat: any) => (
-                          <SelectItem key={stat.team_player_id} value={stat.team_player_id}>
-                            {stat.player?.player_name || 'Unknown'} (Retired Hurt - Can Return)
-                          </SelectItem>
-                        ))}
-                      {/* Fresh batsmen */}
-                      {availableBatsmen
-                        .filter((player: any) => {
-                          // Exclude batsmen who are already batting or out (except retired hurt)
-                          const existingStat = battingStats.find(
-                            (stat: any) =>
-                              stat.team_player_id === player.id &&
-                              stat.innings_number === match.current_innings
-                          )
-                          if (!existingStat) return true // Fresh player
-                          // Allow if retired hurt
-                          return existingStat.dismissal_type === 'retired_hurt' && existingStat.is_out
-                        })
-                        .map((player: any) => {
-                          const isRetiredHurt = battingStats.some(
-                            (stat: any) =>
-                              stat.team_player_id === player.id &&
-                              stat.innings_number === match.current_innings &&
-                              stat.dismissal_type === 'retired_hurt'
-                          )
-                          if (isRetiredHurt) return null // Already shown above
-                          return (
-                            <SelectItem key={player.id} value={player.id}>
-                              {player.player_name}
-                            </SelectItem>
-                          )
-                        })
-                        .filter(Boolean)}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="relative">
-                  <div className="absolute inset-0 flex items-center">
-                    <span className="w-full border-t" />
-                  </div>
-                  <div className="relative flex justify-center text-xs uppercase">
-                    <span className="bg-white px-2 text-muted-foreground">Or</span>
-                  </div>
-                </div>
-              </>
-            )}
-
             <div>
-              <Label>Add New Player to Team</Label>
+              <Label>Select Batsman (Existing or New)</Label>
               <Button
                 variant="outline"
                 className="w-full"
                 onClick={() => {
-                  const battingTeam = match?.team1_id === availableBatsmen[0]?.team_id ? match?.team1 : match?.team2
-                  const battingTeamId = battingTeam?.id || match?.batting_team_id
-                  const battingTeamName = battingTeam?.name || 'Batting Team'
+                  // Determine batting team from current batsmen (more reliable)
+                  const currentInningsBatsmen = battingStats.filter(
+                    (s: any) => s.innings_number === match.current_innings && !s.is_out
+                  )
+
+                  let battingTeamId, battingTeamName
+
+                  if (currentInningsBatsmen.length > 0) {
+                    // Use actual batsmen to determine which team is batting
+                    const batsmanTeamPlayerId = currentInningsBatsmen[0].team_player_id
+                    const isTeam1Batting = match?.team1?.team_players?.some((p: any) => p.id === batsmanTeamPlayerId)
+                    battingTeamId = isTeam1Batting ? match?.team1_id : match?.team2_id
+                    battingTeamName = isTeam1Batting ? match?.team1?.name : match?.team2?.name
+                  } else {
+                    // Fallback to match.batting_team_id
+                    battingTeamId = match?.batting_team_id || match?.team1_id
+                    const battingTeam = match?.team1_id === battingTeamId ? match?.team1 : match?.team2
+                    battingTeamName = battingTeam?.name || 'Batting Team'
+                  }
+
+                  console.log('Add New Batsman - Team ID:', battingTeamId, 'Team Name:', battingTeamName)
 
                   setPlayerAdditionContext({
                     role: 'batsman',
@@ -1677,43 +1664,41 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
             </div>
 
             <Button
-              onClick={async () => {
-                if (newBatsmanId) {
-                  // Ensure player is in local state first
-                  const battingTeamId = match?.batting_team_id
-                  await ensurePlayerInLocalState(newBatsmanId, battingTeamId)
+                variant="destructive"
+                className="w-full"
+                onClick={async () => {
+                  // No new batsman - this ends the innings or continues with 1 batsman
+                  const currentBatsmenCount = battingStats.filter(
+                    (stat: any) =>
+                      stat.innings_number === match.current_innings &&
+                      !stat.is_out
+                  ).length
 
-                  if (useLocalScoring) {
-                    const engine = new LocalMatchEngine(matchId)
-                    engine.addBatsman(newBatsmanId, match.current_innings)
-                    fetchMatchData(true)
+                  if (currentBatsmenCount === 0) {
+                    // No batsmen left - end innings forcefully
+                    setShowBatsmanDialog(false)
+                    setNewBatsmanId('')
+
+                    // Trigger innings completion check with force flag
+                    await checkAndCompleteMatch(true) // Force end innings when no batsmen left
+                    await fetchMatchData()
                   } else {
-                    await selectNewBatsman(matchId, newBatsmanId, match.current_innings)
-                    await fetchMatchData(true)
-                  }
+                    // Continue with remaining batsman
+                    setShowBatsmanDialog(false)
+                    setNewBatsmanId('')
 
-                  setShowBatsmanDialog(false)
-                  setNewBatsmanId('')
-
-                  // Check if over was completed during the wicket
-                  if (overCompletedDuringWicket) {
-                    // Show bowler dialog after a short delay
-                    setTimeout(() => {
-                      setShowBowlerDialog(true)
-                      setOverCompletedDuringWicket(false)
-                    }, 100)
-                  } else {
-                    setTimeout(() => {
-                      setStrikerIndex(1)
-                    }, 100)
+                    // Check if over was completed during the wicket
+                    if (overCompletedDuringWicket) {
+                      setTimeout(() => {
+                        setShowBowlerDialog(true)
+                        setOverCompletedDuringWicket(false)
+                      }, 100)
+                    }
                   }
-                }
-              }}
-              className="w-full"
-              disabled={!newBatsmanId}
-            >
-              Confirm Batsman
-            </Button>
+                }}
+              >
+                No New Batsman
+              </Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -1725,52 +1710,34 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
             <DialogTitle>Select New Bowler</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            {availableBowlers.length > 0 && (
-              <>
-                <div>
-                  <Label>Select Existing Bowler</Label>
-                  <Select value={newBowlerId} onValueChange={setNewBowlerId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select bowler" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableBowlers
-                        .filter((player: any) => {
-                          // Exclude current bowler (can't bowl consecutive overs)
-                          if (currentBowler && currentBowler.team_player_id === player.id) {
-                            return false
-                          }
-                          return true
-                        })
-                        .map((player: any) => (
-                          <SelectItem key={player.id} value={player.id}>
-                            {player.player_name}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="relative">
-                  <div className="absolute inset-0 flex items-center">
-                    <span className="w-full border-t" />
-                  </div>
-                  <div className="relative flex justify-center text-xs uppercase">
-                    <span className="bg-white px-2 text-muted-foreground">Or</span>
-                  </div>
-                </div>
-              </>
-            )}
-
             <div>
-              <Label>Add New Bowler to Team</Label>
+              <Label>Select Bowler (Existing or New)</Label>
               <Button
                 variant="outline"
                 className="w-full"
                 onClick={() => {
-                  const bowlingTeam = match?.team1_id !== match?.batting_team_id ? match?.team1 : match?.team2
-                  const bowlingTeamId = bowlingTeam?.id
-                  const bowlingTeamName = bowlingTeam?.name || 'Bowling Team'
+                  // Determine bowling team from current batsmen (opposite of batting team)
+                  const currentInningsBatsmen = battingStats.filter(
+                    (s: any) => s.innings_number === match.current_innings && !s.is_out
+                  )
+
+                  let bowlingTeamId, bowlingTeamName
+
+                  if (currentInningsBatsmen.length > 0) {
+                    // Use actual batsmen to determine which team is batting
+                    const batsmanTeamPlayerId = currentInningsBatsmen[0].team_player_id
+                    const isTeam1Batting = match?.team1?.team_players?.some((p: any) => p.id === batsmanTeamPlayerId)
+                    // Bowling team is opposite of batting team
+                    bowlingTeamId = isTeam1Batting ? match?.team2_id : match?.team1_id
+                    bowlingTeamName = isTeam1Batting ? match?.team2?.name : match?.team1?.name
+                  } else {
+                    // Fallback - opposite of batting_team_id
+                    bowlingTeamId = match?.team1_id !== match?.batting_team_id ? match?.team1_id : match?.team2_id
+                    const bowlingTeam = bowlingTeamId === match?.team1_id ? match?.team1 : match?.team2
+                    bowlingTeamName = bowlingTeam?.name || 'Bowling Team'
+                  }
+
+                  console.log('Add New Bowler - Team ID:', bowlingTeamId, 'Team Name:', bowlingTeamName)
 
                   setPlayerAdditionContext({
                     role: 'bowler',
@@ -1783,33 +1750,6 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
                 + Add New Bowler
               </Button>
             </div>
-
-            <Button
-              onClick={async () => {
-                if (newBowlerId) {
-                  // Ensure player is in local state first
-                  const bowlingTeamId = match?.team1_id !== match?.batting_team_id ? match?.team1_id : match?.team2_id
-                  await ensurePlayerInLocalState(newBowlerId, bowlingTeamId)
-
-                  if (useLocalScoring) {
-                    const engine = new LocalMatchEngine(matchId)
-                    engine.addBowler(newBowlerId, match.current_innings)
-                    fetchMatchData(true)
-                  } else {
-                    await changeBowler(matchId, newBowlerId, match.current_innings)
-                    await fetchMatchData(true)
-                  }
-
-                  setManuallySelectedBowlerId(newBowlerId)
-                  setShowBowlerDialog(false)
-                  setNewBowlerId('')
-                }
-              }}
-              className="w-full"
-              disabled={!newBowlerId}
-            >
-              Confirm Bowler
-            </Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -1998,10 +1938,11 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
           teamName={playerAdditionContext.teamName}
           role={playerAdditionContext.role}
           onPlayerAdded={handlePlayerAdded}
-          existingPlayerIds={
+          existingPlayerIds={[]}
+          existingTeamPlayers={
             playerAdditionContext.teamId === match?.team1_id
-              ? (match?.team1?.team_players || []).map((p: any) => p.user_id).filter(Boolean)
-              : (match?.team2?.team_players || []).map((p: any) => p.user_id).filter(Boolean)
+              ? (match?.team1?.team_players || [])
+              : (match?.team2?.team_players || [])
           }
         />
       )}

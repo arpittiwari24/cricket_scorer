@@ -16,6 +16,7 @@ interface PlayerAdditionDialogProps {
   role: 'batsman' | 'bowler'
   onPlayerAdded: (playerId: string, playerName: string) => void
   existingPlayerIds: string[]
+  existingTeamPlayers: any[] // All players currently in the team
 }
 
 export function PlayerAdditionDialog({
@@ -25,7 +26,8 @@ export function PlayerAdditionDialog({
   teamName,
   role,
   onPlayerAdded,
-  existingPlayerIds
+  existingPlayerIds,
+  existingTeamPlayers
 }: PlayerAdditionDialogProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
@@ -56,6 +58,22 @@ export function PlayerAdditionDialog({
   const handleAddRegisteredPlayer = async (user: any) => {
     setIsLoading(true)
     try {
+      // Check if this user is already in the team
+      const existingPlayer = existingTeamPlayers.find(
+        (p: any) => p.user_id === user.id && !p.is_guest
+      )
+
+      if (existingPlayer) {
+        // Player already exists in team, just use their existing ID
+        console.log('Player already in team, using existing ID:', existingPlayer.id)
+        onPlayerAdded(existingPlayer.id, existingPlayer.player_name)
+        onOpenChange(false)
+        setSearchQuery('')
+        setIsLoading(false)
+        return
+      }
+
+      // Player not in team, add them
       const result = await addPlayerToTeam({
         teamId,
         userId: user.id,
@@ -88,6 +106,22 @@ export function PlayerAdditionDialog({
 
     setIsLoading(true)
     try {
+      // Check if a guest player with this name already exists in the team
+      const existingGuest = existingTeamPlayers.find(
+        (p: any) => p.is_guest && p.player_name.toLowerCase() === guestName.trim().toLowerCase()
+      )
+
+      if (existingGuest) {
+        // Guest player already exists in team, just use their existing ID
+        console.log('Guest player already in team, using existing ID:', existingGuest.id)
+        onPlayerAdded(existingGuest.id, existingGuest.player_name)
+        onOpenChange(false)
+        setGuestName('')
+        setIsLoading(false)
+        return
+      }
+
+      // Guest player not in team, add them
       const result = await addPlayerToTeam({
         teamId,
         playerName: guestName,

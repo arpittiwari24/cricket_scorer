@@ -21,26 +21,46 @@ export async function syncLocalMatchToDatabase(
   try {
     const { match, battingStats, bowlingStats, balls } = localData
 
-    // 1. Update match data
+    // 1. Update match data - ONLY send valid database fields, not nested objects
+    const matchUpdateData: any = {
+      status: match.status,
+      current_innings: match.current_innings,
+      team1_score: match.team1_score || 0,
+      team1_wickets: match.team1_wickets || 0,
+      team1_overs: match.team1_overs || 0,
+      team1_balls: match.team1_balls || 0,
+      team2_score: match.team2_score || 0,
+      team2_wickets: match.team2_wickets || 0,
+      team2_overs: match.team2_overs || 0,
+      team2_balls: match.team2_balls || 0,
+      completed_at: match.status === 'completed' ? new Date().toISOString() : null
+    }
+
+    // Only include these fields if they exist and are primitive values (string or number)
+    if (match.batting_team_id && typeof match.batting_team_id === 'string') {
+      matchUpdateData.batting_team_id = match.batting_team_id
+    }
+    if (match.target && typeof match.target === 'number') {
+      matchUpdateData.target = match.target
+    }
+    if (match.result_text && typeof match.result_text === 'string') {
+      matchUpdateData.result_text = match.result_text
+    }
+    if (match.winner_team_id && typeof match.winner_team_id === 'string') {
+      matchUpdateData.winner_team_id = match.winner_team_id
+    }
+
+    console.log('Updating match with data:', matchUpdateData)
     const { error: matchError } = await supabase
       .from('matches')
-      .update({
-        status: match.status,
-        current_innings: match.current_innings,
-        team1_score: match.team1_score,
-        team1_wickets: match.team1_wickets,
-        team1_overs: match.team1_overs,
-        team1_balls: match.team1_balls,
-        team2_score: match.team2_score,
-        team2_wickets: match.team2_wickets,
-        team2_overs: match.team2_overs,
-        team2_balls: match.team2_balls,
-        result_text: match.result_text,
-        completed_at: match.status === 'completed' ? new Date().toISOString() : null
-      })
+      .update(matchUpdateData)
       .eq('id', matchId)
 
-    if (matchError) throw matchError
+    if (matchError) {
+      console.error('Match update error:', matchError)
+      console.error('Match update data:', JSON.stringify(matchUpdateData, null, 2))
+      throw new Error(`Match update failed: ${matchError.message}`)
+    }
 
     // 2. Delete existing stats and balls (clean slate)
     await supabase.from('batting_stats').delete().eq('match_id', matchId)
@@ -48,48 +68,113 @@ export async function syncLocalMatchToDatabase(
     await supabase.from('balls').delete().eq('match_id', matchId)
 
     // 3. Insert all batting stats (filter out local IDs and enriched player objects)
-    const cleanBattingStats = battingStats.map((stat: any) => {
-      const { id, player, ...rest } = stat
-      // Remove player object (added for display) and local IDs
-      if (id && id.toString().startsWith('local_')) {
-        return rest
-      }
-      // Still remove player object even for non-local IDs
-      return rest
-    })
+    const cleanBattingStats = battingStats
+      .map((stat: any) => {
+        const { id, player, ...rest } = stat
+        // Remove player object (added for display) and local IDs
+        // Only keep primitive values that belong to the database schema
+        return {
+          match_id: rest.match_id,
+          team_player_id: rest.team_player_id,
+          innings_number: rest.innings_number,
+          runs: rest.runs || 0,
+          balls_faced: rest.balls_faced || 0,
+          fours: rest.fours || 0,
+          sixes: rest.sixes || 0,
+          strike_rate: rest.strike_rate || 0,
+          is_out: rest.is_out || false,
+          dismissal_type: rest.dismissal_type || null
+        }
+      })
+      .filter((stat: any) => stat.match_id && stat.team_player_id) // Ensure required fields exist
 
     if (cleanBattingStats.length > 0) {
+      console.log('Inserting batting stats, count:', cleanBattingStats.length)
       const { error: battingError } = await supabase
         .from('batting_stats')
         .insert(cleanBattingStats)
 
-      if (battingError) throw battingError
+      if (battingError) {
+        console.error('Batting stats insert error:', battingError)
+        console.error('Sample batting stat:', JSON.stringify(cleanBattingStats[0], null, 2))
+        throw new Error(`Batting stats insert failed: ${battingError.message}`)
+      }
     }
 
     // 4. Insert all bowling stats (filter out local IDs and enriched player objects)
-    const cleanBowlingStats = bowlingStats.map((stat: any) => {
-      const { id, player, ...rest } = stat
-      // Remove player object (added for display) and local IDs
-      if (id && id.toString().startsWith('local_')) {
-        return rest
-      }
-      // Still remove player object even for non-local IDs
-      return rest
-    })
+    const cleanBowlingStats = bowlingStats
+      .map((stat: any) => {
+        const { id, player, ...rest } = stat
+        // Remove player object (added for display) and local IDs
+        // Only keep primitive values that belong to the database schema
+        return {
+          match_id: rest.match_id,
+          team_player_id: rest.team_player_id,
+          innings_number: rest.innings_number,
+          overs: rest.overs || 0,
+          balls_bowled: rest.balls_bowled || 0,
+          runs_conceded: rest.runs_conceded || 0,
+          wickets: rest.wickets || 0,
+          maidens: rest.maidens || 0,
+          economy_rate: rest.economy_rate || 0
+        }
+      })
+      .filter((stat: any) => stat.match_id && stat.team_player_id) // Ensure required fields exist
 
     if (cleanBowlingStats.length > 0) {
+      console.log('Inserting bowling stats, count:', cleanBowlingStats.length)
       const { error: bowlingError } = await supabase
         .from('bowling_stats')
         .insert(cleanBowlingStats)
 
-      if (bowlingError) throw bowlingError
+      if (bowlingError) {
+        console.error('Bowling stats insert error:', bowlingError)
+        console.error('Sample bowling stat:', JSON.stringify(cleanBowlingStats[0], null, 2))
+        throw new Error(`Bowling stats insert failed: ${bowlingError.message}`)
+      }
     }
 
-    // 5. Insert all balls (remove id and created_at, keep commentary, deduplicate)
+    // 5. Insert all balls (map to actual database schema)
     const cleanBalls = balls.map((ball: any) => {
-      const { id, created_at, ...rest } = ball
-      // Keep commentary for display in scorecard
-      return rest
+      // Determine ball_type - use existing ball_type if present, otherwise map from flags
+      let ballType = 'legal'
+      if (ball.ball_type) {
+        // LocalMatchEngine sets ball_type directly ('legal', 'wide', 'noball', 'wicket')
+        ballType = ball.ball_type === 'noball' ? 'no_ball' : ball.ball_type
+      } else if (ball.is_wide) {
+        ballType = 'wide'
+      } else if (ball.is_no_ball) {
+        ballType = 'no_ball'
+      }
+
+      // STRICT: Only map EXACT database schema fields, nothing else
+      // Ensure all values are primitives (string, number, boolean, null)
+      const cleanBall: any = {
+        match_id: String(ball.match_id),
+        innings_number: Number(ball.innings_number),
+        over_number: Number(ball.over_number),
+        ball_number: Number(ball.ball_number),
+        batsman_id: String(ball.batsman_id),
+        non_striker_id: (ball.non_striker_id && ball.non_striker_id !== 'undefined') ? String(ball.non_striker_id) : null,
+        bowler_id: String(ball.bowler_id),
+        runs_scored: Number(ball.runs_scored || ball.runs || 0),
+        extras: Number(ball.extras || 0),
+        ball_type: String(ballType),
+        wicket_type: ball.wicket_type ? String(ball.wicket_type) : null,
+        is_boundary: Boolean(ball.is_boundary),
+        is_six: Boolean(ball.is_six)
+      }
+
+      // Commentary is TEXT type - send as plain string only if exists
+      // CRITICAL: Remove broken unicode emojis that cause JSON errors
+      if (ball.commentary && typeof ball.commentary === 'string' && ball.commentary.trim().length > 0) {
+        // Remove all emojis and broken unicode characters
+        cleanBall.commentary = ball.commentary
+          .replace(/[\uD800-\uDFFF]/g, '') // Remove all surrogate pairs (emojis)
+          .trim()
+      }
+
+      return cleanBall
     })
 
     // Deduplicate balls by unique constraint (match_id, innings_number, over_number, ball_number)
@@ -103,11 +188,24 @@ export async function syncLocalMatchToDatabase(
     })
 
     if (uniqueBalls.length > 0) {
+      console.log('Inserting balls, count:', uniqueBalls.length)
+      console.log('Sample ball before insert:', JSON.stringify(uniqueBalls[0], null, 2))
+
       const { error: ballsError } = await supabase
         .from('balls')
         .insert(uniqueBalls)
 
-      if (ballsError) throw ballsError
+      if (ballsError) {
+        console.error('Balls insert error:', ballsError)
+        console.error('Error details:', {
+          message: ballsError.message,
+          code: ballsError.code,
+          details: ballsError.details,
+          hint: ballsError.hint
+        })
+        console.error('Sample ball data:', JSON.stringify(uniqueBalls[0], null, 2))
+        throw new Error(`Balls insert failed: ${ballsError.message}`)
+      }
     }
 
     revalidatePath(`/matches/${matchId}`)
@@ -116,7 +214,13 @@ export async function syncLocalMatchToDatabase(
     return { success: true }
   } catch (error: any) {
     console.error('Error syncing match to database:', error)
-    return { success: false, error: error.message }
+    console.error('Error details:', {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint
+    })
+    return { success: false, error: error.message || 'Unknown error occurred during sync' }
   }
 }
 

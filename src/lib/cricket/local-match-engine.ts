@@ -443,21 +443,11 @@ export class LocalMatchEngine {
         }
       }
 
-      // Check for innings end (all out)
-      const battingTeam = isFirstInnings ? match.team1 : match.team2
-      const totalPlayers = battingTeam?.team_players?.length || 0
-
-      const actualWickets = battingStats.filter(
-        (s: any) =>
-          s.innings_number === match.current_innings &&
-          s.is_out &&
-          s.dismissal_type !== 'retired_hurt'
-      ).length
-
-      // All out when all players are out (regardless of team size)
-      if (actualWickets >= totalPlayers) {
-        this.handleInningsEnd(match, battingStats, bowlingStats, balls)
-      }
+      // DO NOT auto-end innings based on wickets with dynamic player registration!
+      // Innings will end when:
+      // 1. All overs are bowled (checked in checkAndCompleteMatch)
+      // 2. Target is reached (checked in checkAndCompleteMatch)
+      // 3. User manually ends via "End Innings" or "No New Batsman" with no players left
     }
 
     this.saveState({ match, battingStats, bowlingStats, balls })
