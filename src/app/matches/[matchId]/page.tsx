@@ -1940,9 +1940,9 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
           onPlayerAdded={handlePlayerAdded}
           existingPlayerIds={[]}
           existingTeamPlayers={
-            playerAdditionContext.teamId === match?.team1_id
-              ? (match?.team1?.team_players || [])
-              : (match?.team2?.team_players || [])
+            playerAdditionContext.role === 'bowler'
+              ? availableBowlers
+              : availableBatsmen
           }
         />
       )}
