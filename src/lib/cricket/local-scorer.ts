@@ -13,6 +13,7 @@ export interface LocalMatchState {
 }
 
 const STORAGE_KEY_PREFIX = 'cricket_match_'
+const HISTORY_KEY_PREFIX = 'cricket_match_history_'
 
 /**
  * Save match state to localStorage
@@ -54,6 +55,7 @@ export function loadLocalMatchState(matchId: string): LocalMatchState | null {
 export function clearLocalMatchState(matchId: string) {
   try {
     localStorage.removeItem(STORAGE_KEY_PREFIX + matchId)
+    clearStateHistory(matchId)
     return true
   } catch (error) {
     console.error('Failed to clear localStorage:', error)
@@ -78,6 +80,51 @@ export function initializeLocalMatchState(matchId: string, match: any, battingSt
  */
 export function hasLocalMatchState(matchId: string): boolean {
   return localStorage.getItem(STORAGE_KEY_PREFIX + matchId) !== null
+}
+
+/**
+ * Save a state snapshot to history for undo functionality
+ */
+export function saveStateSnapshot(matchId: string, state: Omit<LocalMatchState, 'matchId' | 'lastUpdated'>) {
+  try {
+    const historyKey = HISTORY_KEY_PREFIX + matchId
+    const stateSnapshot = JSON.stringify(state)
+    localStorage.setItem(historyKey, stateSnapshot)
+    return true
+  } catch (error) {
+    console.error('Failed to save state snapshot:', error)
+    return false
+  }
+}
+
+/**
+ * Load the previous state snapshot from history
+ */
+export function loadStateSnapshot(matchId: string): Omit<LocalMatchState, 'matchId' | 'lastUpdated'> | null {
+  try {
+    const historyKey = HISTORY_KEY_PREFIX + matchId
+    const data = localStorage.getItem(historyKey)
+    if (!data) return null
+
+    return JSON.parse(data)
+  } catch (error) {
+    console.error('Failed to load state snapshot:', error)
+    return null
+  }
+}
+
+/**
+ * Clear state history
+ */
+export function clearStateHistory(matchId: string) {
+  try {
+    const historyKey = HISTORY_KEY_PREFIX + matchId
+    localStorage.removeItem(historyKey)
+    return true
+  } catch (error) {
+    console.error('Failed to clear state history:', error)
+    return false
+  }
 }
 
 /**

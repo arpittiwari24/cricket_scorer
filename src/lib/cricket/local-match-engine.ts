@@ -4,7 +4,7 @@
  */
 
 import { WicketType } from '@/types/match'
-import { loadLocalMatchState, saveLocalMatchState } from './local-scorer'
+import { loadLocalMatchState, saveLocalMatchState, saveStateSnapshot, loadStateSnapshot } from './local-scorer'
 import { generateCommentary, getPlayerShortName } from './commentary-generator'
 
 export class LocalMatchEngine {
@@ -23,9 +23,28 @@ export class LocalMatchEngine {
   }
 
   /**
+   * Save current state as a snapshot for undo
+   */
+  private saveSnapshot() {
+    const state = this.getState()
+    if (state) {
+      const { match, battingStats, bowlingStats, balls } = state
+      // Deep clone to avoid reference issues
+      saveStateSnapshot(this.matchId, {
+        match: JSON.parse(JSON.stringify(match)),
+        battingStats: JSON.parse(JSON.stringify(battingStats)),
+        bowlingStats: JSON.parse(JSON.stringify(bowlingStats)),
+        balls: JSON.parse(JSON.stringify(balls))
+      })
+    }
+  }
+
+  /**
    * Record runs scored
    */
   recordRuns(runs: number, batsmanId: string, nonStrikerId: string, bowlerId: string) {
+    // Save snapshot before recording
+    this.saveSnapshot()
     const state = this.getState()
     if (!state) return { success: false, error: 'Match state not found' }
 
@@ -142,6 +161,9 @@ export class LocalMatchEngine {
    * Record a wide delivery
    */
   recordWide(batsmanId: string, nonStrikerId: string, bowlerId: string, additionalRuns: number) {
+    // Save snapshot before recording
+    this.saveSnapshot()
+
     const state = this.getState()
     if (!state) return { success: false, error: 'Match state not found' }
 
@@ -236,6 +258,9 @@ export class LocalMatchEngine {
    * Record a no ball
    */
   recordNoBall(batsmanId: string, nonStrikerId: string, bowlerId: string, additionalRuns: number) {
+    // Save snapshot before recording
+    this.saveSnapshot()
+
     const state = this.getState()
     if (!state) return { success: false, error: 'Match state not found' }
 
@@ -334,6 +359,9 @@ export class LocalMatchEngine {
    * Record a wicket
    */
   recordWicket(batsmanId: string, nonStrikerId: string, bowlerId: string, wicketType: WicketType) {
+    // Save snapshot before recording
+    this.saveSnapshot()
+
     const state = this.getState()
     if (!state) return { success: false, error: 'Match state not found' }
 
@@ -485,113 +513,28 @@ export class LocalMatchEngine {
   }
 
   /**
-   * Undo last ball
+   * Undo last ball by restoring previous state snapshot
    */
   undoLastBall() {
-    const state = this.getState()
-    if (!state) return { success: false, error: 'Match state not found' }
+    // Check if there are any balls in current innings
+    const currentState = this.getState()
+    if (!currentState) return { success: false, error: 'Match state not found' }
 
-    const { match, battingStats, bowlingStats, balls } = state
-
-    // Get last ball for current innings
-    const currentInningsBalls = balls.filter((b: any) => b.innings_number === match.current_innings)
+    const currentInningsBalls = currentState.balls.filter(
+      (b: any) => b.innings_number === currentState.match.current_innings
+    )
     if (currentInningsBalls.length === 0) {
       return { success: false, error: 'No balls to undo' }
     }
 
-    const lastBall = currentInningsBalls[currentInningsBalls.length - 1]
-    const isFirstInnings = match.current_innings === 1
-
-    // Remove the ball
-    const ballIndex = balls.findIndex((b: any) => b.id === lastBall.id)
-    balls.splice(ballIndex, 1)
-
-    // Revert batsman stats
-    const batsmanStat = battingStats.find(
-      (s: any) => s.team_player_id === lastBall.batsman_id && s.innings_number === match.current_innings
-    )
-    if (batsmanStat) {
-      const runsToDeduct = lastBall.runs_scored || 0
-      batsmanStat.runs = Math.max(0, batsmanStat.runs - runsToDeduct)
-
-      if (lastBall.ball_type === 'legal' || lastBall.ball_type === 'wicket') {
-        batsmanStat.balls_faced = Math.max(0, batsmanStat.balls_faced - 1)
-      }
-
-      if (lastBall.is_boundary) batsmanStat.fours = Math.max(0, (batsmanStat.fours || 0) - 1)
-      if (lastBall.is_six) batsmanStat.sixes = Math.max(0, (batsmanStat.sixes || 0) - 1)
-
-      if (lastBall.ball_type === 'wicket') {
-        batsmanStat.is_out = false
-        batsmanStat.dismissal_type = null
-      }
-
-      batsmanStat.strike_rate = batsmanStat.balls_faced > 0
-        ? parseFloat(((batsmanStat.runs / batsmanStat.balls_faced) * 100).toFixed(2))
-        : 0
+    // Load the snapshot (state before the last ball was recorded)
+    const previousState = loadStateSnapshot(this.matchId)
+    if (!previousState) {
+      return { success: false, error: 'No previous state found. Cannot undo.' }
     }
 
-    // Revert bowler stats
-    const bowlerStat = bowlingStats.find(
-      (s: any) => s.team_player_id === lastBall.bowler_id && s.innings_number === match.current_innings
-    )
-    if (bowlerStat) {
-      const totalRunsInBall = (lastBall.runs_scored || 0) + (lastBall.extras || 0)
-      bowlerStat.runs_conceded = Math.max(0, bowlerStat.runs_conceded - totalRunsInBall)
-
-      // Revert balls_bowled for legal balls and wickets (except retired_hurt)
-      if (lastBall.ball_type === 'legal' || (lastBall.ball_type === 'wicket' && lastBall.wicket_type !== 'retired_hurt')) {
-        bowlerStat.balls_bowled = Math.max(0, bowlerStat.balls_bowled - 1)
-        bowlerStat.overs = Math.floor(bowlerStat.balls_bowled / 6)
-      }
-
-      // Revert wickets only for non-run out and non-retired hurt
-      if (lastBall.ball_type === 'wicket' && lastBall.wicket_type !== 'run_out' && lastBall.wicket_type !== 'retired_hurt') {
-        bowlerStat.wickets = Math.max(0, (bowlerStat.wickets || 0) - 1)
-      }
-
-      const totalOvers = bowlerStat.overs + (bowlerStat.balls_bowled % 6) / 6
-      bowlerStat.economy_rate = totalOvers > 0
-        ? parseFloat((bowlerStat.runs_conceded / totalOvers).toFixed(2))
-        : 0
-    }
-
-    // Revert match score
-    const totalRunsInBall = (lastBall.runs_scored || 0) + (lastBall.extras || 0)
-
-    if (isFirstInnings) {
-      match.team1_score = Math.max(0, match.team1_score - totalRunsInBall)
-
-      if (lastBall.ball_type === 'legal' || lastBall.ball_type === 'wicket') {
-        if (match.team1_balls === 0) {
-          match.team1_overs = Math.max(0, match.team1_overs - 1)
-          match.team1_balls = 5
-        } else {
-          match.team1_balls--
-        }
-      }
-
-      if (lastBall.ball_type === 'wicket' && lastBall.wicket_type !== 'retired_hurt') {
-        match.team1_wickets = Math.max(0, match.team1_wickets - 1)
-      }
-    } else {
-      match.team2_score = Math.max(0, match.team2_score - totalRunsInBall)
-
-      if (lastBall.ball_type === 'legal' || lastBall.ball_type === 'wicket') {
-        if (match.team2_balls === 0) {
-          match.team2_overs = Math.max(0, match.team2_overs - 1)
-          match.team2_balls = 5
-        } else {
-          match.team2_balls--
-        }
-      }
-
-      if (lastBall.ball_type === 'wicket' && lastBall.wicket_type !== 'retired_hurt') {
-        match.team2_wickets = Math.max(0, match.team2_wickets - 1)
-      }
-    }
-
-    this.saveState({ match, battingStats, bowlingStats, balls })
+    // Restore the previous state completely
+    this.saveState(previousState)
     return { success: true }
   }
 
