@@ -1628,7 +1628,13 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
               <Button
                 variant="outline"
                 className="w-full"
-                onClick={() => {
+                onClick={async () => {
+                  // Refresh match data from localStorage to get latest team players
+                  await fetchMatchData(true)
+
+                  // Small delay to ensure state is updated
+                  await new Promise(resolve => setTimeout(resolve, 50))
+
                   // Determine batting team from current batsmen (more reliable)
                   const currentInningsBatsmen = battingStats.filter(
                     (s: any) => s.innings_number === match.current_innings && !s.is_out
@@ -1715,7 +1721,13 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
               <Button
                 variant="outline"
                 className="w-full"
-                onClick={() => {
+                onClick={async () => {
+                  // Refresh match data from localStorage to get latest team players
+                  await fetchMatchData(true)
+
+                  // Small delay to ensure state is updated
+                  await new Promise(resolve => setTimeout(resolve, 50))
+
                   // Determine bowling team from current batsmen (opposite of batting team)
                   const currentInningsBatsmen = battingStats.filter(
                     (s: any) => s.innings_number === match.current_innings && !s.is_out
@@ -1781,7 +1793,13 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
                 variant="outline"
                 size="sm"
                 className="mt-2 w-full"
-                onClick={() => {
+                onClick={async () => {
+                  // Refresh match data from localStorage to get latest team players
+                  await fetchMatchData(true)
+
+                  // Small delay to ensure state is updated
+                  await new Promise(resolve => setTimeout(resolve, 50))
+
                   const battingTeamId = match?.batting_team_id
                   const battingTeamName = match?.team1_id === battingTeamId ? match?.team1?.name : match?.team2?.name
 
@@ -1824,7 +1842,13 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
                 variant="outline"
                 size="sm"
                 className="mt-2 w-full"
-                onClick={() => {
+                onClick={async () => {
+                  // Refresh match data from localStorage to get latest team players
+                  await fetchMatchData(true)
+
+                  // Small delay to ensure state is updated
+                  await new Promise(resolve => setTimeout(resolve, 50))
+
                   const battingTeamId = match?.batting_team_id
                   const battingTeamName = match?.team1_id === battingTeamId ? match?.team1?.name : match?.team2?.name
 
@@ -1865,7 +1889,13 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
                 variant="outline"
                 size="sm"
                 className="mt-2 w-full"
-                onClick={() => {
+                onClick={async () => {
+                  // Refresh match data from localStorage to get latest team players
+                  await fetchMatchData(true)
+
+                  // Small delay to ensure state is updated
+                  await new Promise(resolve => setTimeout(resolve, 50))
+
                   const bowlingTeamId = match?.team1_id !== match?.batting_team_id ? match?.team1_id : match?.team2_id
                   const bowlingTeamName = match?.team1_id === bowlingTeamId ? match?.team1?.name : match?.team2?.name
 
@@ -1940,9 +1970,12 @@ export default function MatchScoringPage({ params }: { params: Promise<{ matchId
           onPlayerAdded={handlePlayerAdded}
           existingPlayerIds={[]}
           existingTeamPlayers={
-            playerAdditionContext.role === 'bowler'
-              ? availableBowlers
-              : availableBatsmen
+            // Get the team players directly from match object to ensure latest data
+            playerAdditionContext.teamId === match?.team1_id
+              ? (match?.team1?.team_players || [])
+              : playerAdditionContext.teamId === match?.team2_id
+              ? (match?.team2?.team_players || [])
+              : []
           }
         />
       )}
